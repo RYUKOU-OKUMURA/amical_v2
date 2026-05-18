@@ -41,6 +41,27 @@ import {
 } from "../utils/model-selection";
 import { countWords } from "../utils/dictation-stats";
 
+interface CompletedTranscriptionPersistenceJob {
+  sessionId: string;
+  completeTranscription: string;
+  requestedLanguage: string;
+  detectedLanguage?: string;
+  audioFilePath?: string;
+  usedCloudProvider: boolean;
+  selectedSpeechModelId?: string | null;
+  formattingModel?: string;
+  formattingUsed: boolean;
+  formattingDuration?: number;
+  transcriptionWordCount: number;
+  recordingStartedAt?: number;
+  recordingStoppedAt?: number;
+  finalTextReadyAt: number;
+  audioDurationSeconds?: number;
+  source?: string;
+  vocabularySize: number;
+  formattingStyle?: string;
+}
+
 /**
  * Service for audio transcription and optional formatting
  */
@@ -59,6 +80,7 @@ export class TranscriptionService {
   private modelService: ModelService;
   private modelWasPreloaded: boolean = false;
   private loggedVadFallback = false;
+  private currentSpeechModelId: string | null = null;
 
   constructor(
     modelService: ModelService,
@@ -95,6 +117,7 @@ export class TranscriptionService {
    */
   private async selectProvider(): Promise<TranscriptionProvider> {
     const selectedModelId = await this.modelService.getSelectedModel();
+    this.currentSpeechModelId = selectedModelId;
 
     if (!selectedModelId) {
       // Default to whisper if no model selected
@@ -564,102 +587,35 @@ export class TranscriptionService {
       const formattingModel = formatResult.formattingModel;
       const formattingDuration = formatResult.formattingDuration;
 
-      // Save directly to database
-      logger.transcription.info("Saving transcription with audio file", {
+      const finalTextReadyAt = performance.now();
+      this.persistCompletedTranscriptionInBackground({
         sessionId,
-        audioFilePath,
-        hasAudioFile: !!audioFilePath,
-      });
-
-      const selectedModelId = await this.modelService.getSelectedModel();
-      const speechModelId = usedCloudProvider
-        ? "amical-cloud"
-        : selectedModelId || "whisper-local";
-
-      await createTranscription({
-        text: completeTranscription,
-        language: requestedLanguage,
+        completeTranscription,
+        requestedLanguage,
         detectedLanguage,
-        duration: session.context.sharedData.audioMetadata?.duration,
-        speechModel: speechModelId,
+        audioFilePath,
+        usedCloudProvider,
+        selectedSpeechModelId: this.currentSpeechModelId,
         formattingModel,
-        audioFile: audioFilePath,
-        meta: {
-          sessionId,
-          source: session.context.sharedData.audioMetadata?.source,
-          vocabularySize: session.context.sharedData.vocabulary?.length || 0,
-          formattingStyle:
-            session.context.sharedData.userPreferences?.formattingStyle,
-        },
+        formattingUsed,
+        formattingDuration,
+        transcriptionWordCount,
+        recordingStartedAt: session.recordingStartedAt,
+        recordingStoppedAt: session.recordingStoppedAt,
+        finalTextReadyAt,
+        audioDurationSeconds:
+          session.context.sharedData.audioMetadata?.duration,
+        source: session.context.sharedData.audioMetadata?.source,
+        vocabularySize: session.context.sharedData.vocabulary?.length || 0,
+        formattingStyle:
+          session.context.sharedData.userPreferences?.formattingStyle,
       });
-
-      try {
-        await incrementDailyStats(transcriptionWordCount);
-      } catch (error) {
-        logger.transcription.error("Failed to increment dictation stats", {
-          sessionId,
-          error,
-        });
-      }
-
-      // Track transcription completion
-      const completionTime = performance.now();
-
-      // Calculate durations:
-      // - Recording duration: from when recording started to when it ended
-      // - Processing duration: from when recording ended to completion
-      // - Total duration: from recording start to completion
-      const recordingDuration =
-        session.recordingStartedAt && session.recordingStoppedAt
-          ? session.recordingStoppedAt - session.recordingStartedAt
-          : undefined;
-      const processingDuration = session.recordingStoppedAt
-        ? completionTime - session.recordingStoppedAt
-        : undefined;
-      const totalDuration = session.recordingStartedAt
-        ? completionTime - session.recordingStartedAt
-        : undefined;
-
-      const audioDurationSeconds =
-        session.context.sharedData.audioMetadata?.duration;
-
-      // Get native binding info if using local whisper
-      let whisperNativeBinding: string | undefined;
-      if (this.whisperProvider && "getBindingInfo" in this.whisperProvider) {
-        const bindingInfo = await this.whisperProvider.getBindingInfo();
-        whisperNativeBinding = bindingInfo?.type;
-        logger.transcription.info(
-          "whisper native binding used",
-          whisperNativeBinding,
-        );
-      }
-
-      this.telemetryService.trackTranscriptionCompleted({
-        session_id: sessionId,
-        model_id: speechModelId,
-        model_preloaded: this.modelWasPreloaded,
-        whisper_native_binding: whisperNativeBinding,
-        total_duration_ms: totalDuration || 0,
-        recording_duration_ms: recordingDuration,
-        processing_duration_ms: processingDuration,
-        audio_duration_seconds: audioDurationSeconds,
-        realtime_factor:
-          audioDurationSeconds && totalDuration
-            ? audioDurationSeconds / (totalDuration / 1000)
-            : undefined,
-        text_length: completeTranscription.length,
-        word_count: transcriptionWordCount,
-        formatting_enabled: formattingUsed,
-        formatting_model: formattingModel,
-        formatting_duration_ms: formattingDuration,
-        vad_enabled: !!this.vadService,
-        language: requestedLanguage,
-        vocabulary_size: session.context.sharedData.vocabulary?.length || 0,
-      });
-
       this.streamingSessions.delete(sessionId);
 
-      logger.transcription.info("Streaming session completed", { sessionId });
+      logger.transcription.info("Streaming session finalized for paste", {
+        sessionId,
+        textLength: completeTranscription.length,
+      });
       return completeTranscription;
     } catch (error) {
       // Save failed transcription record
@@ -709,6 +665,141 @@ export class TranscriptionService {
       // Re-throw for RecordingManager to handle notifications
       throw error;
     }
+  }
+
+  private persistCompletedTranscriptionInBackground(
+    job: CompletedTranscriptionPersistenceJob,
+  ): void {
+    void this.persistCompletedTranscription(job).catch((error) => {
+      logger.transcription.error(
+        "Unexpected failure in completed transcription persistence",
+        {
+          sessionId: job.sessionId,
+          error,
+        },
+      );
+      this.telemetryService.captureException(error, {
+        source: "transcription_service",
+        stage: "persist_completed_transcription",
+        session_id: job.sessionId,
+      });
+    });
+  }
+
+  private async persistCompletedTranscription(
+    job: CompletedTranscriptionPersistenceJob,
+  ): Promise<void> {
+    logger.transcription.info("Persisting completed transcription", {
+      sessionId: job.sessionId,
+      audioFilePath: job.audioFilePath,
+      hasAudioFile: !!job.audioFilePath,
+    });
+
+    const speechModelId = job.usedCloudProvider
+      ? "amical-cloud"
+      : job.selectedSpeechModelId || "whisper-local";
+
+    let savedToHistory = false;
+    try {
+      await createTranscription({
+        text: job.completeTranscription,
+        language: job.requestedLanguage,
+        detectedLanguage: job.detectedLanguage,
+        duration: job.audioDurationSeconds,
+        speechModel: speechModelId,
+        formattingModel: job.formattingModel,
+        audioFile: job.audioFilePath,
+        meta: {
+          sessionId: job.sessionId,
+          source: job.source,
+          vocabularySize: job.vocabularySize,
+          formattingStyle: job.formattingStyle,
+        },
+      });
+      savedToHistory = true;
+    } catch (error) {
+      logger.transcription.error("Failed to save completed transcription", {
+        sessionId: job.sessionId,
+        error,
+      });
+      this.telemetryService.captureException(error, {
+        source: "transcription_service",
+        stage: "save_completed_transcription",
+        session_id: job.sessionId,
+      });
+    }
+
+    if (savedToHistory) {
+      try {
+        await incrementDailyStats(job.transcriptionWordCount);
+      } catch (error) {
+        logger.transcription.error("Failed to increment dictation stats", {
+          sessionId: job.sessionId,
+          error,
+        });
+        this.telemetryService.captureException(error, {
+          source: "transcription_service",
+          stage: "increment_dictation_stats",
+          session_id: job.sessionId,
+        });
+      }
+    }
+
+    const recordingDuration =
+      job.recordingStartedAt && job.recordingStoppedAt
+        ? job.recordingStoppedAt - job.recordingStartedAt
+        : undefined;
+    const processingDuration = job.recordingStoppedAt
+      ? job.finalTextReadyAt - job.recordingStoppedAt
+      : undefined;
+    const totalDuration = job.recordingStartedAt
+      ? job.finalTextReadyAt - job.recordingStartedAt
+      : undefined;
+
+    let whisperNativeBinding: string | undefined;
+    if (this.whisperProvider && "getBindingInfo" in this.whisperProvider) {
+      try {
+        const bindingInfo = await this.whisperProvider.getBindingInfo();
+        whisperNativeBinding = bindingInfo?.type;
+        logger.transcription.info(
+          "whisper native binding used",
+          whisperNativeBinding,
+        );
+      } catch (error) {
+        logger.transcription.warn("Failed to get whisper binding info", {
+          sessionId: job.sessionId,
+          error,
+        });
+      }
+    }
+
+    this.telemetryService.trackTranscriptionCompleted({
+      session_id: job.sessionId,
+      model_id: speechModelId,
+      model_preloaded: this.modelWasPreloaded,
+      whisper_native_binding: whisperNativeBinding,
+      total_duration_ms: totalDuration || 0,
+      recording_duration_ms: recordingDuration,
+      processing_duration_ms: processingDuration,
+      audio_duration_seconds: job.audioDurationSeconds,
+      realtime_factor:
+        job.audioDurationSeconds && totalDuration
+          ? job.audioDurationSeconds / (totalDuration / 1000)
+          : undefined,
+      text_length: job.completeTranscription.length,
+      word_count: job.transcriptionWordCount,
+      formatting_enabled: job.formattingUsed,
+      formatting_model: job.formattingModel,
+      formatting_duration_ms: job.formattingDuration,
+      vad_enabled: !!this.vadService,
+      language: job.requestedLanguage,
+      vocabulary_size: job.vocabularySize,
+    });
+
+    logger.transcription.info("Completed transcription persistence finished", {
+      sessionId: job.sessionId,
+      savedToHistory,
+    });
   }
 
   private async buildContext(): Promise<PipelineContext> {

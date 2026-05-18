@@ -965,6 +965,28 @@
             "connectFirst": "先にGroq APIキーを追加して接続してください"
           }
         },
+        "aqua": {
+          "title": "Aqua Avalon 1.5 音声入力",
+          "description": "Aqua Avalonを使って、AI用語や開発用語を含む音声入力の精度を高めます。",
+          "placeholder": "Aqua APIキー",
+          "connect": "接続",
+          "connecting": "接続中",
+          "updateKey": "キーを更新",
+          "remove": "削除",
+          "connected": "接続済み",
+          "notConnected": "未接続",
+          "badge": "Avalon API",
+          "required": "Aqua APIキーが必要です",
+          "validationFailed": "Aqua の検証に失敗しました",
+          "toast": {
+            "saved": "Aqua APIキーを保存しました",
+            "saveFailed": "Aqua APIキーの保存に失敗しました",
+            "removed": "Aqua APIキーを削除しました",
+            "removeFailed": "Aqua APIキーの削除に失敗しました",
+            "validationError": "Aqua APIキーの検証に失敗しました",
+            "connectFirst": "先にAqua APIキーを追加して接続してください"
+          }
+        },
         "actions": {
           "downloadTitle": "クリックしてダウンロード",
           "cancelDownloadTitle": "クリックしてダウンロードをキャンセル",

@@ -9,6 +9,7 @@ import { createDefaultContext } from "../pipeline/core/context";
 import { WhisperProvider } from "../pipeline/providers/transcription/whisper-provider";
 import { AmicalCloudProvider } from "../pipeline/providers/transcription/amical-cloud-provider";
 import { GroqProvider } from "../pipeline/providers/transcription/groq-provider";
+import { AquaProvider } from "../pipeline/providers/transcription/aqua-provider";
 import { createRemoteFormattingProvider } from "../pipeline/providers/formatting/remote-formatting-provider-registry";
 import type { RemoteFormattingProviderType } from "../pipeline/providers/formatting/remote-formatting-provider-registry";
 import { ModelService } from "../services/model-service";
@@ -69,6 +70,7 @@ export class TranscriptionService {
   private whisperProvider: WhisperProvider;
   private cloudProvider: AmicalCloudProvider;
   private groqProvider: GroqProvider;
+  private aquaProvider: AquaProvider;
   private currentProvider: TranscriptionProvider | null = null;
   private streamingSessions = new Map<string, StreamingSession>();
   private vadService: VADService | null;
@@ -93,6 +95,7 @@ export class TranscriptionService {
     this.whisperProvider = new WhisperProvider(modelService);
     this.cloudProvider = new AmicalCloudProvider();
     this.groqProvider = new GroqProvider(settingsService);
+    this.aquaProvider = new AquaProvider(settingsService);
     this.vadService = vadService;
     this.settingsService = settingsService;
     this.vadMutex = new Mutex();
@@ -139,6 +142,11 @@ export class TranscriptionService {
       return this.groqProvider;
     }
 
+    if (model?.provider === "Aqua") {
+      this.currentProvider = this.aquaProvider;
+      return this.aquaProvider;
+    }
+
     // Default to whisper for all other models
     this.currentProvider = this.whisperProvider;
     return this.whisperProvider;
@@ -151,7 +159,9 @@ export class TranscriptionService {
       ? AVAILABLE_MODELS.find((m) => m.id === selectedModelId)
       : null;
     const isRemoteSpeechModel =
-      model?.provider === "Amical Cloud" || model?.provider === "Groq";
+      model?.provider === "Amical Cloud" ||
+      model?.provider === "Groq" ||
+      model?.provider === "Aqua";
 
     // Only preload for local models
     if (!isRemoteSpeechModel) {
@@ -203,7 +213,9 @@ export class TranscriptionService {
         });
       }
     } else {
-      logger.transcription.info("Groq speech model selected; skipping preload");
+      logger.transcription.info("API speech model selected; skipping preload", {
+        provider: model?.provider,
+      });
     }
 
     logger.transcription.info("Transcription service initialized");
@@ -238,6 +250,10 @@ export class TranscriptionService {
         if (model?.provider === "Groq") {
           const groqConfig = await this.settingsService.getGroqConfig();
           return Boolean(groqConfig?.apiKey);
+        }
+        if (model?.provider === "Aqua") {
+          const aquaConfig = await this.settingsService.getAquaConfig();
+          return Boolean(aquaConfig?.apiKey);
         }
       }
 
@@ -274,7 +290,8 @@ export class TranscriptionService {
               : null;
             if (
               selectedModel?.provider === "Amical Cloud" ||
-              selectedModel?.provider === "Groq"
+              selectedModel?.provider === "Groq" ||
+              selectedModel?.provider === "Aqua"
             ) {
               logger.transcription.info(
                 "Skipping Whisper preload after remote speech model selection",

@@ -96,7 +96,9 @@ export const modelsRouter = createRouter({
         const settingsService =
           ctx.serviceManager.getService("settingsService");
         const groqConfig = await settingsService.getGroqConfig();
+        const aquaConfig = await settingsService.getAquaConfig();
         const hasGroqConfig = Boolean(groqConfig?.apiKey);
+        const hasAquaConfig = Boolean(aquaConfig?.apiKey);
 
         // Map available models to Model format using downloaded data if available
         let models = availableModels.map((m) => {
@@ -105,7 +107,9 @@ export const modelsRouter = createRouter({
               ? PROVIDER_TYPES.amical
               : m.provider === "Groq"
                 ? PROVIDER_TYPES.groq
-                : PROVIDER_TYPES.localWhisper;
+                : m.provider === "Aqua"
+                  ? PROVIDER_TYPES.aqua
+                  : PROVIDER_TYPES.localWhisper;
           const providerInstanceId = getSystemProviderInstanceId(providerType);
           const downloaded = downloadedModels[m.id];
           if (downloaded) {
@@ -151,7 +155,13 @@ export const modelsRouter = createRouter({
               return isAuthenticated;
             }
             if (model.setup === "api") {
-              return hasGroqConfig;
+              if (model.provider === "Groq") {
+                return hasGroqConfig;
+              }
+              if (model.provider === "Aqua") {
+                return hasAquaConfig;
+              }
+              return false;
             }
             // Filter local models that aren't downloaded
             return model.downloadedAt !== null;
@@ -330,6 +340,24 @@ export const modelsRouter = createRouter({
         throw new Error("Model manager service not initialized");
       }
       return await modelService.validateGroqConnection(
+        input.apiKey,
+        input.baseURL,
+      );
+    }),
+
+  validateAquaConnection: procedure
+    .input(
+      z.object({
+        apiKey: z.string(),
+        baseURL: z.string().url().optional(),
+      }),
+    )
+    .mutation(async ({ input, ctx }): Promise<ValidationResult> => {
+      const modelService = ctx.serviceManager.getService("modelService");
+      if (!modelService) {
+        throw new Error("Model manager service not initialized");
+      }
+      return await modelService.validateAquaConnection(
         input.apiKey,
         input.baseURL,
       );

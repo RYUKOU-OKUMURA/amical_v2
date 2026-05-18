@@ -965,6 +965,28 @@
             "connectFirst": "請先新增並連線您的 Groq API 金鑰"
           }
         },
+        "aqua": {
+          "title": "Aqua Avalon 1.5 語音轉文字",
+          "description": "使用 Aqua Avalon 進行高準確度聽寫，特別適合 AI 與開發者術語。",
+          "placeholder": "Aqua API 金鑰",
+          "connect": "連線",
+          "connecting": "連線中",
+          "updateKey": "更新金鑰",
+          "remove": "移除",
+          "connected": "已連線",
+          "notConnected": "未連線",
+          "badge": "Avalon API",
+          "required": "需要 Aqua API 金鑰",
+          "validationFailed": "Aqua 驗證失敗",
+          "toast": {
+            "saved": "已儲存 Aqua API 金鑰",
+            "saveFailed": "無法儲存 Aqua API 金鑰",
+            "removed": "已移除 Aqua API 金鑰",
+            "removeFailed": "無法移除 Aqua API 金鑰",
+            "validationError": "無法驗證 Aqua API 金鑰",
+            "connectFirst": "請先新增並連線您的 Aqua API 金鑰"
+          }
+        },
         "actions": {
           "downloadTitle": "點擊下載",
           "cancelDownloadTitle": "點擊取消下載",

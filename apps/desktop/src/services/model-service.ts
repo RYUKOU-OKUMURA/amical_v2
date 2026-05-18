@@ -61,6 +61,7 @@ type FetchedModel = Pick<
   Partial<DBModel>;
 
 const PROVIDER_REQUEST_TIMEOUT_MS = 10_000;
+const AQUA_DEFAULT_BASE_URL = "https://api.aquavoice.com/api/v1";
 
 function getProviderIdentity(provider: RemoteProvider) {
   const providerType = getRemoteProviderType(provider);
@@ -763,9 +764,11 @@ class ModelService extends EventEmitter {
   // Check if any models are available for transcription
   async isAvailable(): Promise<boolean> {
     const selectedModelId = await this.getSelectedModel();
-    if (selectedModelId?.startsWith("groq-")) {
-      const groqConfig = await this.settingsService.getGroqConfig();
-      return Boolean(groqConfig?.apiKey);
+    const selectedModel = selectedModelId
+      ? AVAILABLE_MODELS.find((model) => model.id === selectedModelId)
+      : null;
+    if (selectedModel?.setup === "api") {
+      return this.isApiSpeechProviderConfigured(selectedModel.provider);
     }
 
     const downloadedModels = await this.getValidDownloadedModels();
@@ -777,10 +780,18 @@ class ModelService extends EventEmitter {
     const downloadedModels = await this.getValidDownloadedModels();
     const modelIds = Object.keys(downloadedModels);
     const groqConfig = await this.settingsService.getGroqConfig();
+    const aquaConfig = await this.settingsService.getAquaConfig();
 
     if (groqConfig?.apiKey) {
       modelIds.push(
         ...AVAILABLE_MODELS.filter((model) => model.provider === "Groq").map(
+          (model) => model.id,
+        ),
+      );
+    }
+    if (aquaConfig?.apiKey) {
+      modelIds.push(
+        ...AVAILABLE_MODELS.filter((model) => model.provider === "Aqua").map(
           (model) => model.id,
         ),
       );
@@ -907,9 +918,13 @@ class ModelService extends EventEmitter {
 
         logger.main.info("Selecting cloud model", { modelId });
       } else if (availableModel?.setup === "api") {
-        const groqConfig = await this.settingsService.getGroqConfig();
-        if (!groqConfig?.apiKey) {
-          throw new Error("Groq API key is required for Groq speech models");
+        const isConfigured = await this.isApiSpeechProviderConfigured(
+          availableModel.provider,
+        );
+        if (!isConfigured) {
+          throw new Error(
+            `${availableModel.provider} API key is required for ${availableModel.provider} speech models`,
+          );
         }
 
         logger.main.info("Selecting API speech model", {
@@ -1020,8 +1035,30 @@ class ModelService extends EventEmitter {
     apiKey: string,
     baseURL = "https://api.groq.com/openai/v1",
   ): Promise<ValidationResult> {
-    const normalizedBaseURL = normalizeOpenAICompatibleBaseURL(baseURL);
+    return this.validateOpenAICompatibleSpeechConnection(apiKey, baseURL);
+  }
 
+  /**
+   * Aqua currently exposes transcription endpoints without a guaranteed models
+   * listing endpoint, so validation only checks that the config is present.
+   * Auth or network errors surface on the first transcription request.
+   */
+  async validateAquaConnection(
+    apiKey: string,
+    baseURL = AQUA_DEFAULT_BASE_URL,
+  ): Promise<ValidationResult> {
+    normalizeOpenAICompatibleBaseURL(baseURL);
+
+    return apiKey.trim()
+      ? { success: true }
+      : { success: false, error: "Aqua API key is required" };
+  }
+
+  private async validateOpenAICompatibleSpeechConnection(
+    apiKey: string,
+    baseURL: string,
+  ): Promise<ValidationResult> {
+    const normalizedBaseURL = normalizeOpenAICompatibleBaseURL(baseURL);
     try {
       const response = await fetch(`${normalizedBaseURL}/models`, {
         method: "GET",
@@ -1046,6 +1083,23 @@ class ModelService extends EventEmitter {
         success: false,
         error: formatProviderRequestError(error),
       };
+    }
+  }
+
+  private async isApiSpeechProviderConfigured(
+    provider: string,
+  ): Promise<boolean> {
+    switch (provider) {
+      case "Groq": {
+        const groqConfig = await this.settingsService.getGroqConfig();
+        return Boolean(groqConfig?.apiKey);
+      }
+      case "Aqua": {
+        const aquaConfig = await this.settingsService.getAquaConfig();
+        return Boolean(aquaConfig?.apiKey);
+      }
+      default:
+        return false;
     }
   }
 
@@ -1619,10 +1673,13 @@ class ModelService extends EventEmitter {
         }
 
         if (availableModel?.setup === "api") {
-          const groqConfig = await this.settingsService.getGroqConfig();
-          if (!groqConfig?.apiKey) {
+          const isConfigured = await this.isApiSpeechProviderConfigured(
+            availableModel.provider,
+          );
+          if (!isConfigured) {
             logger.main.info("Clearing API speech model without credentials", {
               modelId: speechModelId,
+              provider: availableModel.provider,
             });
             await this.applySpeechModelSelection(
               null,

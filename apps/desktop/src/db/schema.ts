@@ -161,6 +161,10 @@ export interface AppSettingsData {
       apiKey: string;
       baseURL?: string;
     };
+    aqua?: {
+      apiKey: string;
+      baseURL?: string;
+    };
     ollama?: {
       url: string;
     };

@@ -130,6 +130,8 @@ export default function SpeechTab() {
   );
   const [groqApiKey, setGroqApiKey] = useState("");
   const [groqValidationError, setGroqValidationError] = useState("");
+  const [aquaApiKey, setAquaApiKey] = useState("");
+  const [aquaValidationError, setAquaValidationError] = useState("");
 
   // tRPC queries
   const availableModelsQuery = api.models.getAvailableModels.useQuery();
@@ -248,6 +250,62 @@ export default function SpeechTab() {
     },
   });
 
+  const setAquaConfigMutation = api.settings.setAquaConfig.useMutation({
+    onSuccess: () => {
+      toast.success(t("settings.aiModels.speech.aqua.toast.saved"));
+      setAquaValidationError("");
+      utils.settings.getModelProvidersConfig.invalidate();
+      utils.models.getModels.invalidate({ type: "speech" });
+      utils.models.getTranscriptionModels.invalidate();
+      utils.models.isTranscriptionAvailable.invalidate();
+    },
+    onError: (error) => {
+      console.error("Failed to save Aqua config:", error);
+      toast.error(t("settings.aiModels.speech.aqua.toast.saveFailed"));
+    },
+  });
+
+  const removeAquaConfigMutation = api.settings.removeAquaConfig.useMutation({
+    onSuccess: () => {
+      toast.success(t("settings.aiModels.speech.aqua.toast.removed"));
+      setAquaApiKey("");
+      setAquaValidationError("");
+      utils.settings.getModelProvidersConfig.invalidate();
+      utils.models.getModels.invalidate({ type: "speech" });
+      utils.models.getTranscriptionModels.invalidate();
+      utils.models.isTranscriptionAvailable.invalidate();
+      if (selectedModelQuery.data?.startsWith("aqua-")) {
+        setSelectedModelMutation.mutate({ modelId: null });
+      }
+    },
+    onError: (error) => {
+      console.error("Failed to remove Aqua config:", error);
+      toast.error(t("settings.aiModels.speech.aqua.toast.removeFailed"));
+    },
+  });
+
+  const validateAquaMutation = api.models.validateAquaConnection.useMutation({
+    onSuccess: (result) => {
+      if (!result.success) {
+        const message =
+          result.error || t("settings.aiModels.speech.aqua.validationFailed");
+        setAquaValidationError(message);
+        toast.error(message);
+        return;
+      }
+
+      setAquaConfigMutation.mutate({
+        apiKey: aquaApiKey.trim(),
+        baseURL: "https://api.aquavoice.com/api/v1",
+      });
+    },
+    onError: (error) => {
+      console.error("Failed to validate Aqua config:", error);
+      setAquaValidationError(error.message);
+      toast.error(t("settings.aiModels.speech.aqua.toast.validationError"));
+    },
+  });
+
   // Auth mutations
   const loginMutation = api.auth.login.useMutation({
     onSuccess: () => {
@@ -274,6 +332,11 @@ export default function SpeechTab() {
     const configuredKey = modelProvidersConfigQuery.data?.groq?.apiKey ?? "";
     setGroqApiKey(configuredKey);
   }, [modelProvidersConfigQuery.data?.groq?.apiKey]);
+
+  useEffect(() => {
+    const configuredKey = modelProvidersConfigQuery.data?.aqua?.apiKey ?? "";
+    setAquaApiKey(configuredKey);
+  }, [modelProvidersConfigQuery.data?.aqua?.apiKey]);
 
   // Set up tRPC subscriptions for real-time download updates
   api.models.onDownloadProgress.useSubscription(undefined, {
@@ -421,6 +484,7 @@ export default function SpeechTab() {
     const model = availableModels.find((m) => m.id === modelId);
     const isCloudModel = model?.provider === "Amical Cloud";
     const isGroqModel = model?.provider === "Groq";
+    const isAquaModel = model?.provider === "Aqua";
 
     // If cloud model and not authenticated, show login dialog
     if (isCloudModel && !isAuthenticated) {
@@ -431,6 +495,11 @@ export default function SpeechTab() {
 
     if (isGroqModel && !isGroqConfigured) {
       toast.error(t("settings.aiModels.speech.groq.toast.connectFirst"));
+      return;
+    }
+
+    if (isAquaModel && !isAquaConfigured) {
+      toast.error(t("settings.aiModels.speech.aqua.toast.connectFirst"));
       return;
     }
 
@@ -453,6 +522,20 @@ export default function SpeechTab() {
     validateGroqMutation.mutate({
       apiKey: trimmedApiKey,
       baseURL: "https://api.groq.com/openai/v1",
+    });
+  };
+
+  const handleAquaConnect = () => {
+    const trimmedApiKey = aquaApiKey.trim();
+    if (!trimmedApiKey) {
+      setAquaValidationError(t("settings.aiModels.speech.aqua.required"));
+      return;
+    }
+
+    setAquaValidationError("");
+    validateAquaMutation.mutate({
+      apiKey: trimmedApiKey,
+      baseURL: "https://api.aquavoice.com/api/v1",
     });
   };
 
@@ -484,10 +567,17 @@ export default function SpeechTab() {
   const isGroqConfigured = Boolean(
     modelProvidersConfigQuery.data?.groq?.apiKey,
   );
+  const isAquaConfigured = Boolean(
+    modelProvidersConfigQuery.data?.aqua?.apiKey,
+  );
   const groqBusy =
     validateGroqMutation.isPending ||
     setGroqConfigMutation.isPending ||
     removeGroqConfigMutation.isPending;
+  const aquaBusy =
+    validateAquaMutation.isPending ||
+    setAquaConfigMutation.isPending ||
+    removeAquaConfigMutation.isPending;
 
   if (loading) {
     return (
@@ -572,6 +662,71 @@ export default function SpeechTab() {
             </div>
           </div>
 
+          <div className="rounded-md border bg-muted/30 p-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">
+                  {t("settings.aiModels.speech.aqua.title")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.aiModels.speech.aqua.description")}
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    type="password"
+                    value={aquaApiKey}
+                    onChange={(event) => setAquaApiKey(event.target.value)}
+                    placeholder={t("settings.aiModels.speech.aqua.placeholder")}
+                    className="w-full sm:w-[320px]"
+                    disabled={aquaBusy}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={handleAquaConnect}
+                    disabled={aquaBusy || !aquaApiKey.trim()}
+                  >
+                    {aquaBusy ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {t("settings.aiModels.speech.aqua.connecting")}
+                      </>
+                    ) : isAquaConfigured ? (
+                      t("settings.aiModels.speech.aqua.updateKey")
+                    ) : (
+                      t("settings.aiModels.speech.aqua.connect")
+                    )}
+                  </Button>
+                  {isAquaConfigured && (
+                    <Button
+                      variant="outline"
+                      onClick={() => removeAquaConfigMutation.mutate()}
+                      disabled={aquaBusy}
+                    >
+                      {t("settings.aiModels.speech.aqua.remove")}
+                    </Button>
+                  )}
+                </div>
+                {aquaValidationError && (
+                  <p className="text-xs text-destructive">
+                    {aquaValidationError}
+                  </p>
+                )}
+              </div>
+              <Badge
+                variant="secondary"
+                className={
+                  isAquaConfigured
+                    ? "w-fit text-green-500 border-green-500"
+                    : "w-fit text-red-500 border-red-500"
+                }
+              >
+                {isAquaConfigured
+                  ? t("settings.aiModels.speech.aqua.connected")
+                  : t("settings.aiModels.speech.aqua.notConnected")}
+              </Badge>
+            </div>
+          </div>
+
           <div>
             <Label className="text-lg font-semibold mb-2 block">
               {t("settings.aiModels.speech.availableModels")}
@@ -608,13 +763,16 @@ export default function SpeechTab() {
                           progress?.status === "downloading";
                         const isCloudModel = model.provider === "Amical Cloud";
                         const isGroqModel = model.provider === "Groq";
+                        const isAquaModel = model.provider === "Aqua";
 
                         // Cloud models can be selected if authenticated, local models need to be downloaded
                         const canSelect = isCloudModel
                           ? (isAuthenticated ?? false)
                           : isGroqModel
                             ? isGroqConfigured
-                            : isDownloaded && isTranscriptionAvailable;
+                            : isAquaModel
+                              ? isAquaConfigured
+                              : isDownloaded && isTranscriptionAvailable;
 
                         return (
                           <TableRow
@@ -686,6 +844,18 @@ export default function SpeechTab() {
                                       </Badge>
                                     </div>
                                   )}
+                                  {isAquaModel && (
+                                    <div className="mt-1">
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-[10px] px-1.5 py-0"
+                                      >
+                                        {t(
+                                          "settings.aiModels.speech.aqua.badge",
+                                        )}
+                                      </Badge>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </TableCell>
@@ -749,9 +919,16 @@ export default function SpeechTab() {
                                   </div>
                                 )}
 
+                                {isAquaModel && (
+                                  <div className="w-8 h-8 rounded-full bg-cyan-500/10 flex items-center justify-center">
+                                    <Cloud className="w-4 h-4 text-cyan-500" />
+                                  </div>
+                                )}
+
                                 {/* Local models show download/delete buttons */}
                                 {!isCloudModel &&
                                   !isGroqModel &&
+                                  !isAquaModel &&
                                   !isDownloaded &&
                                   !isDownloading && (
                                     <button
@@ -769,6 +946,7 @@ export default function SpeechTab() {
 
                                 {!isCloudModel &&
                                   !isGroqModel &&
+                                  !isAquaModel &&
                                   !isDownloaded &&
                                   isDownloading && (
                                     <div className="relative">
@@ -823,6 +1001,7 @@ export default function SpeechTab() {
 
                                 {!isCloudModel &&
                                   !isGroqModel &&
+                                  !isAquaModel &&
                                   isDownloaded && (
                                     <button
                                       type="button"

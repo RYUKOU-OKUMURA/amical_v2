@@ -965,6 +965,28 @@
             "connectFirst": "Agrega y conecta tu clave API de Groq primero"
           }
         },
+        "aqua": {
+          "title": "Aqua Avalon 1.5 voz a texto",
+          "description": "Usa Aqua Avalon para dictado de alta precisión con terminología de IA y desarrollo.",
+          "placeholder": "Clave API de Aqua",
+          "connect": "Conectar",
+          "connecting": "Conectando",
+          "updateKey": "Actualizar clave",
+          "remove": "Eliminar",
+          "connected": "Conectado",
+          "notConnected": "No conectado",
+          "badge": "API de Avalon",
+          "required": "La clave API de Aqua es obligatoria",
+          "validationFailed": "La validación de Aqua falló",
+          "toast": {
+            "saved": "Clave API de Aqua guardada",
+            "saveFailed": "No se pudo guardar la clave API de Aqua",
+            "removed": "Clave API de Aqua eliminada",
+            "removeFailed": "No se pudo eliminar la clave API de Aqua",
+            "validationError": "No se pudo validar la clave API de Aqua",
+            "connectFirst": "Agrega y conecta tu clave API de Aqua primero"
+          }
+        },
         "actions": {
           "downloadTitle": "Haz clic para descargar",
           "cancelDownloadTitle": "Haz clic para cancelar la descarga",

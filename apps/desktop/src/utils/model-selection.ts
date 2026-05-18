@@ -138,7 +138,9 @@ export function getSpeechModelSelectionKey(modelId: string): string {
       ? getSystemProviderInstanceId(PROVIDER_TYPES.amical)
       : modelId.startsWith("groq-")
         ? getSystemProviderInstanceId(PROVIDER_TYPES.groq)
-        : getSystemProviderInstanceId(PROVIDER_TYPES.localWhisper),
+        : modelId.startsWith("aqua-")
+          ? getSystemProviderInstanceId(PROVIDER_TYPES.aqua)
+          : getSystemProviderInstanceId(PROVIDER_TYPES.localWhisper),
     "speech",
     modelId,
   );

@@ -213,6 +213,38 @@ export const AVAILABLE_MODELS: AvailableWhisperModel[] = [
     providerIcon: "/icons/models/groq.svg",
   },
   {
+    id: "aqua-avalon-v1.5",
+    name: "Aqua Avalon 1.5",
+    type: "whisper",
+    description:
+      "Aqua-hosted Avalon speech recognition for high-accuracy dictation and technical vocabulary.",
+    checksum: "",
+    filename: "",
+    downloadUrl: "",
+    size: 0,
+    sizeFormatted: "API",
+    modelSize: "API",
+    features: [
+      {
+        icon: "award",
+        tooltip: "High-accuracy speech recognition",
+      },
+      {
+        icon: "code",
+        tooltip: "Optimized for AI and developer terminology",
+      },
+      {
+        icon: "cloud",
+        tooltip: "Uses your Aqua API key",
+      },
+    ],
+    speed: 4.8,
+    accuracy: 4.9,
+    setup: "api",
+    provider: "Aqua",
+    providerIcon: "/icons/models/aqua.svg",
+  },
+  {
     id: "whisper-tiny",
     name: "Whisper Tiny",
     type: "whisper",

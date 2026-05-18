@@ -40,6 +40,11 @@ const GroqConfigSchema = z.object({
   baseURL: z.string().url().optional(),
 });
 
+const AquaConfigSchema = z.object({
+  apiKey: z.string(),
+  baseURL: z.string().url().optional(),
+});
+
 const OllamaConfigSchema = z.object({
   url: z.string().url().or(z.literal("")),
 });
@@ -52,6 +57,7 @@ const OpenAICompatibleConfigSchema = z.object({
 const ModelProvidersConfigSchema = z.object({
   openRouter: OpenRouterConfigSchema.optional(),
   groq: GroqConfigSchema.optional(),
+  aqua: AquaConfigSchema.optional(),
   ollama: OllamaConfigSchema.optional(),
   openAICompatible: OpenAICompatibleConfigSchema.optional(),
 });
@@ -564,6 +570,51 @@ export const settingsRouter = createRouter({
       const logger = ctx.serviceManager.getLogger();
       if (logger) {
         logger.main.error("Error removing Groq config:", error);
+      }
+      throw error;
+    }
+  }),
+
+  // Set Aqua/Avalon configuration
+  setAquaConfig: procedure
+    .input(AquaConfigSchema)
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const settingsService =
+          ctx.serviceManager.getService("settingsService");
+        if (!settingsService) {
+          throw new Error("SettingsService not available");
+        }
+        await settingsService.setAquaConfig(input);
+
+        const logger = ctx.serviceManager.getLogger();
+        if (logger) {
+          logger.main.info("Aqua configuration updated");
+        }
+
+        return true;
+      } catch (error) {
+        const logger = ctx.serviceManager.getLogger();
+        if (logger) {
+          logger.main.error("Error setting Aqua config:", error);
+        }
+        throw error;
+      }
+    }),
+
+  // Remove Aqua/Avalon configuration
+  removeAquaConfig: procedure.mutation(async ({ ctx }) => {
+    try {
+      const settingsService = ctx.serviceManager.getService("settingsService");
+      if (!settingsService) {
+        throw new Error("SettingsService not available");
+      }
+      await settingsService.removeAquaConfig();
+      return true;
+    } catch (error) {
+      const logger = ctx.serviceManager.getLogger();
+      if (logger) {
+        logger.main.error("Error removing Aqua config:", error);
       }
       throw error;
     }

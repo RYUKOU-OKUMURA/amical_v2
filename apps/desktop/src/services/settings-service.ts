@@ -261,6 +261,53 @@ export class SettingsService extends EventEmitter {
   }
 
   /**
+   * Get Aqua/Avalon configuration
+   */
+  async getAquaConfig(): Promise<
+    { apiKey: string; baseURL?: string } | undefined
+  > {
+    const config = await this.getModelProvidersConfig();
+    if (!config?.aqua) {
+      return undefined;
+    }
+
+    return {
+      ...config.aqua,
+      baseURL:
+        !config.aqua.baseURL || config.aqua.baseURL === "https://api.aqua.sh/v1"
+          ? "https://api.aquavoice.com/api/v1"
+          : config.aqua.baseURL,
+    };
+  }
+
+  /**
+   * Update Aqua/Avalon configuration
+   */
+  async setAquaConfig(config: {
+    apiKey: string;
+    baseURL?: string;
+  }): Promise<void> {
+    const currentConfig = await this.getModelProvidersConfig();
+    await this.setModelProvidersConfig({
+      ...currentConfig,
+      aqua: {
+        apiKey: config.apiKey.trim(),
+        baseURL: config.baseURL?.trim() || "https://api.aquavoice.com/api/v1",
+      },
+    });
+  }
+
+  /**
+   * Remove Aqua/Avalon configuration
+   */
+  async removeAquaConfig(): Promise<void> {
+    const currentConfig = await this.getModelProvidersConfig();
+    const updatedConfig = { ...currentConfig };
+    delete updatedConfig.aqua;
+    await this.setModelProvidersConfig(updatedConfig);
+  }
+
+  /**
    * Get Ollama configuration
    */
   async getOllamaConfig(): Promise<{ url: string } | undefined> {

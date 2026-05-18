@@ -943,6 +943,28 @@
           "tooltip": "選擇此模型將支援雲端的文字格式化功能。",
           "signInTitle": "請登入以體驗雲端模型"
         },
+        "groq": {
+          "title": "Groq 語音轉文字",
+          "description": "使用 Groq Whisper 模型提供更快速的即時聽寫預覽。",
+          "placeholder": "Groq API 金鑰",
+          "connect": "連線",
+          "connecting": "連線中",
+          "updateKey": "更新金鑰",
+          "remove": "移除",
+          "connected": "已連線",
+          "notConnected": "未連線",
+          "badge": "Groq API",
+          "required": "需要 Groq API 金鑰",
+          "validationFailed": "Groq 驗證失敗",
+          "toast": {
+            "saved": "已儲存 Groq API 金鑰",
+            "saveFailed": "無法儲存 Groq API 金鑰",
+            "removed": "已移除 Groq API 金鑰",
+            "removeFailed": "無法移除 Groq API 金鑰",
+            "validationError": "無法驗證 Groq API 金鑰",
+            "connectFirst": "請先新增並連線您的 Groq API 金鑰"
+          }
+        },
         "actions": {
           "downloadTitle": "點擊下載",
           "cancelDownloadTitle": "點擊取消下載",

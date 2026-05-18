@@ -943,6 +943,28 @@
           "tooltip": "El formato en la nube está disponible cuando este modelo está seleccionado.",
           "signInTitle": "Inicia sesión para usar el modelo en la nube"
         },
+        "groq": {
+          "title": "Groq voz a texto",
+          "description": "Usa modelos Whisper de Groq para vistas previas de dictado más rápidas.",
+          "placeholder": "Clave API de Groq",
+          "connect": "Conectar",
+          "connecting": "Conectando",
+          "updateKey": "Actualizar clave",
+          "remove": "Eliminar",
+          "connected": "Conectado",
+          "notConnected": "No conectado",
+          "badge": "API de Groq",
+          "required": "La clave API de Groq es obligatoria",
+          "validationFailed": "La validación de Groq falló",
+          "toast": {
+            "saved": "Clave API de Groq guardada",
+            "saveFailed": "No se pudo guardar la clave API de Groq",
+            "removed": "Clave API de Groq eliminada",
+            "removeFailed": "No se pudo eliminar la clave API de Groq",
+            "validationError": "No se pudo validar la clave API de Groq",
+            "connectFirst": "Agrega y conecta tu clave API de Groq primero"
+          }
+        },
         "actions": {
           "downloadTitle": "Haz clic para descargar",
           "cancelDownloadTitle": "Haz clic para cancelar la descarga",

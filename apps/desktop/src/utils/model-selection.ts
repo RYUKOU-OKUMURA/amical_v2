@@ -136,7 +136,9 @@ export function getSpeechModelSelectionKey(modelId: string): string {
   return getModelSelectionKey(
     modelId === "amical-cloud"
       ? getSystemProviderInstanceId(PROVIDER_TYPES.amical)
-      : getSystemProviderInstanceId(PROVIDER_TYPES.localWhisper),
+      : modelId.startsWith("groq-")
+        ? getSystemProviderInstanceId(PROVIDER_TYPES.groq)
+        : getSystemProviderInstanceId(PROVIDER_TYPES.localWhisper),
     "speech",
     modelId,
   );

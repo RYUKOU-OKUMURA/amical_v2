@@ -943,6 +943,28 @@
           "tooltip": "このモデルを選択すると、クラウドフォーマットが利用できます。",
           "signInTitle": "クラウドモデルを使用するにはサインインしてください"
         },
+        "groq": {
+          "title": "Groq 音声入力",
+          "description": "Groq の Whisper モデルを使って、入力予定テキストをより高速にプレビューします。",
+          "placeholder": "Groq APIキー",
+          "connect": "接続",
+          "connecting": "接続中",
+          "updateKey": "キーを更新",
+          "remove": "削除",
+          "connected": "接続済み",
+          "notConnected": "未接続",
+          "badge": "Groq API",
+          "required": "Groq APIキーが必要です",
+          "validationFailed": "Groq の検証に失敗しました",
+          "toast": {
+            "saved": "Groq APIキーを保存しました",
+            "saveFailed": "Groq APIキーの保存に失敗しました",
+            "removed": "Groq APIキーを削除しました",
+            "removeFailed": "Groq APIキーの削除に失敗しました",
+            "validationError": "Groq APIキーの検証に失敗しました",
+            "connectFirst": "先にGroq APIキーを追加して接続してください"
+          }
+        },
         "actions": {
           "downloadTitle": "クリックしてダウンロード",
           "cancelDownloadTitle": "クリックしてダウンロードをキャンセル",

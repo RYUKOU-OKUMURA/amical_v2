@@ -224,6 +224,43 @@ export class SettingsService extends EventEmitter {
   }
 
   /**
+   * Get Groq configuration
+   */
+  async getGroqConfig(): Promise<
+    { apiKey: string; baseURL?: string } | undefined
+  > {
+    const config = await this.getModelProvidersConfig();
+    return config?.groq;
+  }
+
+  /**
+   * Update Groq configuration
+   */
+  async setGroqConfig(config: {
+    apiKey: string;
+    baseURL?: string;
+  }): Promise<void> {
+    const currentConfig = await this.getModelProvidersConfig();
+    await this.setModelProvidersConfig({
+      ...currentConfig,
+      groq: {
+        apiKey: config.apiKey.trim(),
+        baseURL: config.baseURL?.trim() || "https://api.groq.com/openai/v1",
+      },
+    });
+  }
+
+  /**
+   * Remove Groq configuration
+   */
+  async removeGroqConfig(): Promise<void> {
+    const currentConfig = await this.getModelProvidersConfig();
+    const updatedConfig = { ...currentConfig };
+    delete updatedConfig.groq;
+    await this.setModelProvidersConfig(updatedConfig);
+  }
+
+  /**
    * Get Ollama configuration
    */
   async getOllamaConfig(): Promise<{ url: string } | undefined> {

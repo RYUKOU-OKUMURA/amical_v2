@@ -8,6 +8,7 @@ import {
 import { createDefaultContext } from "../pipeline/core/context";
 import { WhisperProvider } from "../pipeline/providers/transcription/whisper-provider";
 import { AmicalCloudProvider } from "../pipeline/providers/transcription/amical-cloud-provider";
+import { GroqProvider } from "../pipeline/providers/transcription/groq-provider";
 import { createRemoteFormattingProvider } from "../pipeline/providers/formatting/remote-formatting-provider-registry";
 import type { RemoteFormattingProviderType } from "../pipeline/providers/formatting/remote-formatting-provider-registry";
 import { ModelService } from "../services/model-service";
@@ -46,6 +47,7 @@ import { countWords } from "../utils/dictation-stats";
 export class TranscriptionService {
   private whisperProvider: WhisperProvider;
   private cloudProvider: AmicalCloudProvider;
+  private groqProvider: GroqProvider;
   private currentProvider: TranscriptionProvider | null = null;
   private streamingSessions = new Map<string, StreamingSession>();
   private vadService: VADService | null;
@@ -68,6 +70,7 @@ export class TranscriptionService {
   ) {
     this.whisperProvider = new WhisperProvider(modelService);
     this.cloudProvider = new AmicalCloudProvider();
+    this.groqProvider = new GroqProvider(settingsService);
     this.vadService = vadService;
     this.settingsService = settingsService;
     this.vadMutex = new Mutex();
@@ -108,6 +111,11 @@ export class TranscriptionService {
       return this.cloudProvider;
     }
 
+    if (model?.provider === "Groq") {
+      this.currentProvider = this.groqProvider;
+      return this.groqProvider;
+    }
+
     // Default to whisper for all other models
     this.currentProvider = this.whisperProvider;
     return this.whisperProvider;
@@ -119,10 +127,11 @@ export class TranscriptionService {
     const model = selectedModelId
       ? AVAILABLE_MODELS.find((m) => m.id === selectedModelId)
       : null;
-    const isCloudModel = model?.provider === "Amical Cloud";
+    const isRemoteSpeechModel =
+      model?.provider === "Amical Cloud" || model?.provider === "Groq";
 
     // Only preload for local models
-    if (!isCloudModel) {
+    if (!isRemoteSpeechModel) {
       // Check if we should preload Whisper model
       const transcriptionSettings =
         await this.settingsService.getTranscriptionSettings();
@@ -159,7 +168,7 @@ export class TranscriptionService {
       } else {
         logger.transcription.info("Whisper model preloading disabled");
       }
-    } else {
+    } else if (model?.provider === "Amical Cloud") {
       // Cloud model selected: warm auth so the first dictation's first chunk
       // doesn't block on a token-refresh roundtrip.
       try {
@@ -170,6 +179,8 @@ export class TranscriptionService {
           error,
         });
       }
+    } else {
+      logger.transcription.info("Groq speech model selected; skipping preload");
     }
 
     logger.transcription.info("Transcription service initialized");
@@ -201,6 +212,10 @@ export class TranscriptionService {
         if (model?.provider === "Amical Cloud") {
           return true;
         }
+        if (model?.provider === "Groq") {
+          const groqConfig = await this.settingsService.getGroqConfig();
+          return Boolean(groqConfig?.apiKey);
+        }
       }
 
       // For local models, check if any are downloaded
@@ -230,6 +245,21 @@ export class TranscriptionService {
             transcriptionSettings?.preloadWhisperModel !== false;
 
           if (shouldPreload) {
+            const selectedModelId = await this.modelService.getSelectedModel();
+            const selectedModel = selectedModelId
+              ? AVAILABLE_MODELS.find((model) => model.id === selectedModelId)
+              : null;
+            if (
+              selectedModel?.provider === "Amical Cloud" ||
+              selectedModel?.provider === "Groq"
+            ) {
+              logger.transcription.info(
+                "Skipping Whisper preload after remote speech model selection",
+                { provider: selectedModel.provider },
+              );
+              return;
+            }
+
             const hasModels = await this.isModelAvailable();
             if (hasModels) {
               logger.transcription.info(

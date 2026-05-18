@@ -3,6 +3,7 @@ import { REMOTE_PROVIDERS, type RemoteProvider } from "./remote-providers";
 export const PROVIDER_TYPES = {
   amical: "amical",
   localWhisper: "local-whisper",
+  groq: "groq",
   openRouter: "openrouter",
   ollama: "ollama",
   openAICompatible: "openai-compatible",
@@ -13,6 +14,7 @@ export type ProviderType = (typeof PROVIDER_TYPES)[keyof typeof PROVIDER_TYPES];
 export const SYSTEM_PROVIDER_INSTANCE_IDS = {
   amical: "system-amical",
   localWhisper: "system-local-whisper",
+  groq: "system-groq",
   openRouter: "system-openrouter",
   ollama: "system-ollama",
   openAICompatible: "system-openai-compatible",
@@ -37,6 +39,8 @@ export function getSystemProviderInstanceId(
       return SYSTEM_PROVIDER_INSTANCE_IDS.amical;
     case PROVIDER_TYPES.localWhisper:
       return SYSTEM_PROVIDER_INSTANCE_IDS.localWhisper;
+    case PROVIDER_TYPES.groq:
+      return SYSTEM_PROVIDER_INSTANCE_IDS.groq;
     case PROVIDER_TYPES.openRouter:
       return SYSTEM_PROVIDER_INSTANCE_IDS.openRouter;
     case PROVIDER_TYPES.ollama:
@@ -52,6 +56,8 @@ export function getProviderDisplayName(providerType: ProviderType): string {
       return "Amical";
     case PROVIDER_TYPES.localWhisper:
       return "Local";
+    case PROVIDER_TYPES.groq:
+      return "Groq";
     case PROVIDER_TYPES.openRouter:
       return REMOTE_PROVIDERS.openRouter;
     case PROVIDER_TYPES.ollama:

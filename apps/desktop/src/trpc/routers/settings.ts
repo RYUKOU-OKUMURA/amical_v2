@@ -35,6 +35,11 @@ const OpenRouterConfigSchema = z.object({
   apiKey: z.string(),
 });
 
+const GroqConfigSchema = z.object({
+  apiKey: z.string(),
+  baseURL: z.string().url().optional(),
+});
+
 const OllamaConfigSchema = z.object({
   url: z.string().url().or(z.literal("")),
 });
@@ -46,6 +51,7 @@ const OpenAICompatibleConfigSchema = z.object({
 
 const ModelProvidersConfigSchema = z.object({
   openRouter: OpenRouterConfigSchema.optional(),
+  groq: GroqConfigSchema.optional(),
   ollama: OllamaConfigSchema.optional(),
   openAICompatible: OpenAICompatibleConfigSchema.optional(),
 });
@@ -517,6 +523,51 @@ export const settingsRouter = createRouter({
         throw error;
       }
     }),
+
+  // Set Groq configuration
+  setGroqConfig: procedure
+    .input(GroqConfigSchema)
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const settingsService =
+          ctx.serviceManager.getService("settingsService");
+        if (!settingsService) {
+          throw new Error("SettingsService not available");
+        }
+        await settingsService.setGroqConfig(input);
+
+        const logger = ctx.serviceManager.getLogger();
+        if (logger) {
+          logger.main.info("Groq configuration updated");
+        }
+
+        return true;
+      } catch (error) {
+        const logger = ctx.serviceManager.getLogger();
+        if (logger) {
+          logger.main.error("Error setting Groq config:", error);
+        }
+        throw error;
+      }
+    }),
+
+  // Remove Groq configuration
+  removeGroqConfig: procedure.mutation(async ({ ctx }) => {
+    try {
+      const settingsService = ctx.serviceManager.getService("settingsService");
+      if (!settingsService) {
+        throw new Error("SettingsService not available");
+      }
+      await settingsService.removeGroqConfig();
+      return true;
+    } catch (error) {
+      const logger = ctx.serviceManager.getLogger();
+      if (logger) {
+        logger.main.error("Error removing Groq config:", error);
+      }
+      throw error;
+    }
+  }),
 
   // Set Ollama configuration
   setOllamaConfig: procedure

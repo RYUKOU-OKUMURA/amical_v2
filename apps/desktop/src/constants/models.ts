@@ -14,7 +14,7 @@ export interface AvailableWhisperModel {
   }[];
   speed: number;
   accuracy: number;
-  setup: "offline" | "cloud";
+  setup: "offline" | "cloud" | "api";
   provider: string;
   providerIcon: string;
   modelSize: string;
@@ -147,6 +147,70 @@ export const AVAILABLE_MODELS: AvailableWhisperModel[] = [
     setup: "cloud",
     provider: "Amical Cloud",
     providerIcon: "/assets/icon_logo.svg",
+  },
+  {
+    id: "groq-whisper-large-v3-turbo",
+    name: "Groq Whisper Large v3 Turbo",
+    type: "whisper",
+    description:
+      "Fast Groq-hosted Whisper transcription optimized for low-latency dictation.",
+    checksum: "",
+    filename: "",
+    downloadUrl: "",
+    size: 0,
+    sizeFormatted: "API",
+    modelSize: "API",
+    features: [
+      {
+        icon: "bolt",
+        tooltip: "Low-latency API transcription",
+      },
+      {
+        icon: "languages",
+        tooltip: "Multilingual Whisper support",
+      },
+      {
+        icon: "cloud",
+        tooltip: "Uses your Groq API key",
+      },
+    ],
+    speed: 5.0,
+    accuracy: 4.3,
+    setup: "api",
+    provider: "Groq",
+    providerIcon: "/icons/models/groq.svg",
+  },
+  {
+    id: "groq-whisper-large-v3",
+    name: "Groq Whisper Large v3",
+    type: "whisper",
+    description:
+      "Groq-hosted Whisper Large v3 for higher-accuracy cloud transcription.",
+    checksum: "",
+    filename: "",
+    downloadUrl: "",
+    size: 0,
+    sizeFormatted: "API",
+    modelSize: "API",
+    features: [
+      {
+        icon: "award",
+        tooltip: "Higher accuracy speech recognition",
+      },
+      {
+        icon: "languages",
+        tooltip: "Multilingual Whisper support",
+      },
+      {
+        icon: "cloud",
+        tooltip: "Uses your Groq API key",
+      },
+    ],
+    speed: 4.5,
+    accuracy: 4.7,
+    setup: "api",
+    provider: "Groq",
+    providerIcon: "/icons/models/groq.svg",
   },
   {
     id: "whisper-tiny",

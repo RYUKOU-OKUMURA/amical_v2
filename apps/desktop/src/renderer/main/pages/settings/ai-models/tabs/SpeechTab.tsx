@@ -1,6 +1,7 @@
 "use client";
 import { ComponentProps, useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import DefaultModelCombobox from "../components/default-model-combobox";
@@ -127,6 +128,8 @@ export default function SpeechTab() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | undefined>(
     undefined,
   );
+  const [groqApiKey, setGroqApiKey] = useState("");
+  const [groqValidationError, setGroqValidationError] = useState("");
 
   // tRPC queries
   const availableModelsQuery = api.models.getAvailableModels.useQuery();
@@ -135,6 +138,8 @@ export default function SpeechTab() {
   const isTranscriptionAvailableQuery =
     api.models.isTranscriptionAvailable.useQuery();
   const selectedModelQuery = api.models.getSelectedModel.useQuery();
+  const modelProvidersConfigQuery =
+    api.settings.getModelProvidersConfig.useQuery();
 
   const utils = api.useUtils();
 
@@ -187,6 +192,62 @@ export default function SpeechTab() {
     },
   });
 
+  const setGroqConfigMutation = api.settings.setGroqConfig.useMutation({
+    onSuccess: () => {
+      toast.success(t("settings.aiModels.speech.groq.toast.saved"));
+      setGroqValidationError("");
+      utils.settings.getModelProvidersConfig.invalidate();
+      utils.models.getModels.invalidate({ type: "speech" });
+      utils.models.getTranscriptionModels.invalidate();
+      utils.models.isTranscriptionAvailable.invalidate();
+    },
+    onError: (error) => {
+      console.error("Failed to save Groq config:", error);
+      toast.error(t("settings.aiModels.speech.groq.toast.saveFailed"));
+    },
+  });
+
+  const removeGroqConfigMutation = api.settings.removeGroqConfig.useMutation({
+    onSuccess: () => {
+      toast.success(t("settings.aiModels.speech.groq.toast.removed"));
+      setGroqApiKey("");
+      setGroqValidationError("");
+      utils.settings.getModelProvidersConfig.invalidate();
+      utils.models.getModels.invalidate({ type: "speech" });
+      utils.models.getTranscriptionModels.invalidate();
+      utils.models.isTranscriptionAvailable.invalidate();
+      if (selectedModelQuery.data?.startsWith("groq-")) {
+        setSelectedModelMutation.mutate({ modelId: null });
+      }
+    },
+    onError: (error) => {
+      console.error("Failed to remove Groq config:", error);
+      toast.error(t("settings.aiModels.speech.groq.toast.removeFailed"));
+    },
+  });
+
+  const validateGroqMutation = api.models.validateGroqConnection.useMutation({
+    onSuccess: (result) => {
+      if (!result.success) {
+        const message =
+          result.error || t("settings.aiModels.speech.groq.validationFailed");
+        setGroqValidationError(message);
+        toast.error(message);
+        return;
+      }
+
+      setGroqConfigMutation.mutate({
+        apiKey: groqApiKey.trim(),
+        baseURL: "https://api.groq.com/openai/v1",
+      });
+    },
+    onError: (error) => {
+      console.error("Failed to validate Groq config:", error);
+      setGroqValidationError(error.message);
+      toast.error(t("settings.aiModels.speech.groq.toast.validationError"));
+    },
+  });
+
   // Auth mutations
   const loginMutation = api.auth.login.useMutation({
     onSuccess: () => {
@@ -208,6 +269,11 @@ export default function SpeechTab() {
       setDownloadProgress(progressMap);
     }
   }, [activeDownloadsQuery.data]);
+
+  useEffect(() => {
+    const configuredKey = modelProvidersConfigQuery.data?.groq?.apiKey ?? "";
+    setGroqApiKey(configuredKey);
+  }, [modelProvidersConfigQuery.data?.groq?.apiKey]);
 
   // Set up tRPC subscriptions for real-time download updates
   api.models.onDownloadProgress.useSubscription(undefined, {
@@ -354,11 +420,17 @@ export default function SpeechTab() {
     // Check if this is a cloud model
     const model = availableModels.find((m) => m.id === modelId);
     const isCloudModel = model?.provider === "Amical Cloud";
+    const isGroqModel = model?.provider === "Groq";
 
     // If cloud model and not authenticated, show login dialog
     if (isCloudModel && !isAuthenticated) {
       setPendingCloudModel(modelId);
       setShowLoginDialog(true);
+      return;
+    }
+
+    if (isGroqModel && !isGroqConfigured) {
+      toast.error(t("settings.aiModels.speech.groq.toast.connectFirst"));
       return;
     }
 
@@ -368,6 +440,20 @@ export default function SpeechTab() {
       console.error("Failed to select model:", err);
       // Error is already handled by the mutation's onError
     }
+  };
+
+  const handleGroqConnect = () => {
+    const trimmedApiKey = groqApiKey.trim();
+    if (!trimmedApiKey) {
+      setGroqValidationError(t("settings.aiModels.speech.groq.required"));
+      return;
+    }
+
+    setGroqValidationError("");
+    validateGroqMutation.mutate({
+      apiKey: trimmedApiKey,
+      baseURL: "https://api.groq.com/openai/v1",
+    });
   };
 
   const handleLogin = async () => {
@@ -387,13 +473,21 @@ export default function SpeechTab() {
     availableModelsQuery.isLoading ||
     downloadedModelsQuery.isLoading ||
     isTranscriptionAvailableQuery.isLoading ||
-    selectedModelQuery.isLoading;
+    selectedModelQuery.isLoading ||
+    modelProvidersConfigQuery.isLoading;
 
   // Data from queries
   const availableModels = availableModelsQuery.data || [];
   const downloadedModels = downloadedModelsQuery.data || {};
   const isTranscriptionAvailable = isTranscriptionAvailableQuery.data || false;
   const selectedModel = selectedModelQuery.data;
+  const isGroqConfigured = Boolean(
+    modelProvidersConfigQuery.data?.groq?.apiKey,
+  );
+  const groqBusy =
+    validateGroqMutation.isPending ||
+    setGroqConfigMutation.isPending ||
+    removeGroqConfigMutation.isPending;
 
   if (loading) {
     return (
@@ -412,6 +506,72 @@ export default function SpeechTab() {
             modelType="speech"
             title={t("settings.aiModels.defaultModels.speech")}
           />
+
+          <div className="rounded-md border bg-muted/30 p-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">
+                  {t("settings.aiModels.speech.groq.title")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.aiModels.speech.groq.description")}
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    type="password"
+                    value={groqApiKey}
+                    onChange={(event) => setGroqApiKey(event.target.value)}
+                    placeholder={t("settings.aiModels.speech.groq.placeholder")}
+                    className="w-full sm:w-[320px]"
+                    disabled={groqBusy}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={handleGroqConnect}
+                    disabled={groqBusy || !groqApiKey.trim()}
+                  >
+                    {groqBusy ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {t("settings.aiModels.speech.groq.connecting")}
+                      </>
+                    ) : isGroqConfigured ? (
+                      t("settings.aiModels.speech.groq.updateKey")
+                    ) : (
+                      t("settings.aiModels.speech.groq.connect")
+                    )}
+                  </Button>
+                  {isGroqConfigured && (
+                    <Button
+                      variant="outline"
+                      onClick={() => removeGroqConfigMutation.mutate()}
+                      disabled={groqBusy}
+                    >
+                      {t("settings.aiModels.speech.groq.remove")}
+                    </Button>
+                  )}
+                </div>
+                {groqValidationError && (
+                  <p className="text-xs text-destructive">
+                    {groqValidationError}
+                  </p>
+                )}
+              </div>
+              <Badge
+                variant="secondary"
+                className={
+                  isGroqConfigured
+                    ? "w-fit text-green-500 border-green-500"
+                    : "w-fit text-red-500 border-red-500"
+                }
+              >
+                {isGroqConfigured
+                  ? t("settings.aiModels.speech.groq.connected")
+                  : t("settings.aiModels.speech.groq.notConnected")}
+              </Badge>
+            </div>
+          </div>
+
           <div>
             <Label className="text-lg font-semibold mb-2 block">
               {t("settings.aiModels.speech.availableModels")}
@@ -447,11 +607,14 @@ export default function SpeechTab() {
                         const isDownloading =
                           progress?.status === "downloading";
                         const isCloudModel = model.provider === "Amical Cloud";
+                        const isGroqModel = model.provider === "Groq";
 
                         // Cloud models can be selected if authenticated, local models need to be downloaded
                         const canSelect = isCloudModel
                           ? (isAuthenticated ?? false)
-                          : isDownloaded && isTranscriptionAvailable;
+                          : isGroqModel
+                            ? isGroqConfigured
+                            : isDownloaded && isTranscriptionAvailable;
 
                         return (
                           <TableRow
@@ -511,6 +674,18 @@ export default function SpeechTab() {
                                       </Tooltip>
                                     </div>
                                   )}
+                                  {isGroqModel && (
+                                    <div className="mt-1">
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-[10px] px-1.5 py-0"
+                                      >
+                                        {t(
+                                          "settings.aiModels.speech.groq.badge",
+                                        )}
+                                      </Badge>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </TableCell>
@@ -568,8 +743,15 @@ export default function SpeechTab() {
                                   </>
                                 )}
 
+                                {isGroqModel && (
+                                  <div className="w-8 h-8 rounded-full bg-orange-500/10 flex items-center justify-center">
+                                    <Cloud className="w-4 h-4 text-orange-500" />
+                                  </div>
+                                )}
+
                                 {/* Local models show download/delete buttons */}
                                 {!isCloudModel &&
+                                  !isGroqModel &&
                                   !isDownloaded &&
                                   !isDownloading && (
                                     <button
@@ -586,6 +768,7 @@ export default function SpeechTab() {
                                   )}
 
                                 {!isCloudModel &&
+                                  !isGroqModel &&
                                   !isDownloaded &&
                                   isDownloading && (
                                     <div className="relative">
@@ -638,24 +821,26 @@ export default function SpeechTab() {
                                     </div>
                                   )}
 
-                                {!isCloudModel && isDownloaded && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) =>
-                                      handleDeleteClick(model.id, e)
-                                    }
-                                    className="w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-colors"
-                                    title={t(
-                                      "settings.aiModels.speech.actions.deleteTitle",
-                                    )}
-                                    aria-label={t(
-                                      "settings.aiModels.speech.actions.deleteAria",
-                                      { modelName: model.name },
-                                    )}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                )}
+                                {!isCloudModel &&
+                                  !isGroqModel &&
+                                  isDownloaded && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) =>
+                                        handleDeleteClick(model.id, e)
+                                      }
+                                      className="w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-colors"
+                                      title={t(
+                                        "settings.aiModels.speech.actions.deleteTitle",
+                                      )}
+                                      aria-label={t(
+                                        "settings.aiModels.speech.actions.deleteAria",
+                                        { modelName: model.name },
+                                      )}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
 
                                 <div className="text-xs text-muted-foreground text-center">
                                   {model.sizeFormatted}

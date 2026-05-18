@@ -20,6 +20,13 @@ interface RecordingStateUpdate {
   mode: RecordingMode;
 }
 
+interface TranscriptionPreviewUpdate {
+  sessionId: string | null;
+  text: string;
+  status: "partial" | "processing" | "final" | "cleared";
+  timestamp: number;
+}
+
 export const recordingRouter = createRouter({
   signalStart: procedure.mutation(async ({ ctx }) => {
     const recordingManager = ctx.serviceManager.getService("recordingManager");
@@ -111,6 +118,26 @@ export const recordingRouter = createRouter({
       // Cleanup function
       return () => {
         vadService.off("voice-detected", handleVoiceDetection);
+      };
+    });
+  }),
+
+  transcriptionPreviewUpdates: procedure.subscription(({ ctx }) => {
+    return observable<TranscriptionPreviewUpdate>((emit) => {
+      const recordingManager =
+        ctx.serviceManager.getService("recordingManager");
+      if (!recordingManager) {
+        throw new Error("Recording manager not available");
+      }
+
+      const handlePreview = (update: TranscriptionPreviewUpdate) => {
+        emit.next(update);
+      };
+
+      recordingManager.on("transcription-preview", handlePreview);
+
+      return () => {
+        recordingManager.off("transcription-preview", handlePreview);
       };
     });
   }),

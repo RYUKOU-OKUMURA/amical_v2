@@ -157,6 +157,10 @@ export interface AppSettingsData {
     openRouter?: {
       apiKey: string;
     };
+    groq?: {
+      apiKey: string;
+      baseURL?: string;
+    };
     ollama?: {
       url: string;
     };

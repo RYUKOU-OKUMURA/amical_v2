@@ -11,6 +11,12 @@ const NUM_WAVEFORM_BARS = 6; // Fewer bars to make room for stop button
 const DEBOUNCE_DELAY = 100; // milliseconds
 const TOAST_INTERACTION_STATE_EVENT = "widget:toast-interaction-state";
 
+type TranscriptionPreview = {
+  text: string;
+  status: "partial" | "processing" | "final";
+  timestamp: number;
+};
+
 // Separate component for the stop button
 const StopButton: React.FC<{ onClick: (e: React.MouseEvent) => void }> = ({
   onClick,
@@ -55,9 +61,13 @@ const WaveformVisualization: React.FC<{
 export const FloatingButton: React.FC = () => {
   const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
+  const [transcriptionPreview, setTranscriptionPreview] =
+    useState<TranscriptionPreview | null>(null);
   const leaveTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Ref for debounce timeout
   const clickTimeRef = useRef<number | null>(null); // Track when user clicked
   const hasActiveToastRef = useRef(false);
+  const previewRef = useRef<TranscriptionPreview | null>(null);
+  const previewClearTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // tRPC mutation to control widget mouse events
   const setIgnoreMouseEvents = api.widget.setIgnoreMouseEvents.useMutation();
@@ -89,6 +99,72 @@ export const FloatingButton: React.FC = () => {
 
   const { recordingStatus, stopRecording, voiceDetected, startRecording } =
     useRecording();
+
+  useEffect(() => {
+    previewRef.current = transcriptionPreview;
+  }, [transcriptionPreview]);
+
+  api.recording.transcriptionPreviewUpdates.useSubscription(undefined, {
+    onData: (update) => {
+      if (previewClearTimeoutRef.current) {
+        clearTimeout(previewClearTimeoutRef.current);
+        previewClearTimeoutRef.current = null;
+      }
+
+      if (update.status === "cleared") {
+        if (
+          previewRef.current?.status === "final" &&
+          previewRef.current.text.trim()
+        ) {
+          previewClearTimeoutRef.current = setTimeout(() => {
+            setTranscriptionPreview(null);
+            previewClearTimeoutRef.current = null;
+          }, 1400);
+        } else {
+          setTranscriptionPreview(null);
+        }
+        return;
+      }
+
+      if (update.status === "processing" && !update.text.trim()) {
+        setTranscriptionPreview((current) => {
+          const next: TranscriptionPreview | null = current
+            ? { ...current, status: "processing" }
+            : null;
+          previewRef.current = next;
+          return next;
+        });
+        return;
+      }
+
+      if (!update.text.trim()) {
+        return;
+      }
+
+      const nextPreview = {
+        text: update.text,
+        status: update.status,
+        timestamp: update.timestamp,
+      };
+      previewRef.current = nextPreview;
+      setTranscriptionPreview(nextPreview);
+    },
+    onError: (error) => {
+      console.error(
+        "Error subscribing to transcription preview updates",
+        error,
+      );
+    },
+  });
+
+  useEffect(() => {
+    return () => {
+      if (previewClearTimeoutRef.current) {
+        clearTimeout(previewClearTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // STARTING is a brief handshake before renderer capture begins; keep the
   // widget expanded and waveform-shaped like the pre-FSM flow.
   const isRecording =
@@ -191,6 +267,12 @@ export const FloatingButton: React.FC = () => {
   const isWidgetActive = isRecording || isStopping || isHovered;
   const showNotesAction =
     isNoteWindowEnabled && isHovered && !isRecording && !isStopping;
+  const shouldShowPreview =
+    !!transcriptionPreview?.text.trim() &&
+    (isRecording || isStopping || transcriptionPreview.status === "final");
+  const visibleTranscriptionPreview = shouldShowPreview
+    ? transcriptionPreview
+    : null;
   const sizeClass = !isWidgetActive
     ? "h-[8px] w-[48px]"
     : showNotesAction
@@ -252,23 +334,48 @@ export const FloatingButton: React.FC = () => {
   };
 
   return (
-    <div
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      className={`
-        transition-all duration-200 ease-in-out
-        ${sizeClass}
-        bg-black/70 rounded-[24px] backdrop-blur-md ring-[1px] ring-black/60 shadow-[0px_0px_15px_0px_rgba(0,0,0,0.40)]
-        before:content-[''] before:absolute before:inset-[1px] before:rounded-[23px] before:outline before:outline-white/15 before:pointer-events-none
-        mb-2 cursor-pointer select-none
-      `}
-      style={{ pointerEvents: "auto" }}
-    >
-      {isWidgetActive && (
-        <div className="flex gap-[2px] h-full w-full justify-between">
-          {renderWidgetContent()}
+    <div className="pointer-events-none mb-2 flex w-[min(560px,calc(100vw-32px))] flex-col items-center gap-2">
+      {visibleTranscriptionPreview && (
+        <div className="pointer-events-none max-w-full rounded-[12px] bg-black/80 px-4 py-3 text-[13px] leading-[1.45] text-white shadow-[0_12px_34px_rgba(0,0,0,0.38)] ring-1 ring-white/10 backdrop-blur-md">
+          <div
+            className="max-h-[76px] overflow-hidden break-words"
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+            }}
+          >
+            {visibleTranscriptionPreview.text}
+            {visibleTranscriptionPreview.status === "processing" && (
+              <span className="ml-1 inline-flex translate-y-[1px] gap-[2px]">
+                <span className="h-1 w-1 animate-bounce rounded-full bg-white/70 [animation-delay:-0.2s]" />
+                <span className="h-1 w-1 animate-bounce rounded-full bg-white/70 [animation-delay:-0.1s]" />
+                <span className="h-1 w-1 animate-bounce rounded-full bg-white/70" />
+              </span>
+            )}
+          </div>
         </div>
       )}
+
+      <div
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        className={`
+          pointer-events-auto
+          transition-all duration-200 ease-in-out
+          ${sizeClass}
+          bg-black/70 rounded-[24px] backdrop-blur-md ring-[1px] ring-black/60 shadow-[0px_0px_15px_0px_rgba(0,0,0,0.40)]
+          before:content-[''] before:absolute before:inset-[1px] before:rounded-[23px] before:outline before:outline-white/15 before:pointer-events-none
+          cursor-pointer select-none
+        `}
+        style={{ pointerEvents: "auto" }}
+      >
+        {isWidgetActive && (
+          <div className="flex gap-[2px] h-full w-full justify-between">
+            {renderWidgetContent()}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

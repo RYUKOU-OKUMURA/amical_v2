@@ -965,6 +965,28 @@
           "tooltip": "Cloud formatting is available when this model is selected.",
           "signInTitle": "Sign in to use cloud model"
         },
+        "groq": {
+          "title": "Groq Speech-to-Text",
+          "description": "Use Groq Whisper models for faster live dictation previews.",
+          "placeholder": "Groq API Key",
+          "connect": "Connect",
+          "connecting": "Connecting",
+          "updateKey": "Update key",
+          "remove": "Remove",
+          "connected": "Connected",
+          "notConnected": "Not connected",
+          "badge": "Groq API",
+          "required": "Groq API key is required",
+          "validationFailed": "Groq validation failed",
+          "toast": {
+            "saved": "Groq API key saved",
+            "saveFailed": "Failed to save Groq API key",
+            "removed": "Groq API key removed",
+            "removeFailed": "Failed to remove Groq API key",
+            "validationError": "Failed to validate Groq API key",
+            "connectFirst": "Add and connect your Groq API key first"
+          }
+        },
         "actions": {
           "downloadTitle": "Click to download",
           "cancelDownloadTitle": "Click to cancel download",

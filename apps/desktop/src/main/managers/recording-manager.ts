@@ -79,6 +79,7 @@ export class RecordingManager extends EventEmitter {
   // Performance tracking
   private recordingStartedAt: number | null = null;
   private recordingStoppedAt: number | null = null;
+  private previewText: string = "";
 
   // System audio state tracking
   private systemAudioMuted: boolean = false;
@@ -164,6 +165,25 @@ export class RecordingManager extends EventEmitter {
 
     // Broadcast mode change to all windows
     this.emit("mode-changed", newMode);
+  }
+
+  private emitTranscriptionPreview(
+    text: string,
+    status: "partial" | "processing" | "final" | "cleared",
+  ): void {
+    const sessionId = this.currentSessionId;
+
+    if (status === "partial" && text === this.previewText) {
+      return;
+    }
+
+    this.previewText = text;
+    this.emit("transcription-preview", {
+      sessionId,
+      text,
+      status,
+      timestamp: Date.now(),
+    });
   }
 
   public getState(): RecordingState {
@@ -579,11 +599,15 @@ export class RecordingManager extends EventEmitter {
             const transcriptionService = this.serviceManager.getService(
               "transcriptionService",
             );
-            await transcriptionService.processStreamingChunk({
-              sessionId: this.currentSessionId,
-              audioChunk: chunk,
-              recordingStartedAt: this.recordingStartedAt || undefined,
-            });
+            const previewText =
+              await transcriptionService.processStreamingChunk({
+                sessionId: this.currentSessionId,
+                audioChunk: chunk,
+                recordingStartedAt: this.recordingStartedAt || undefined,
+              });
+            if (previewText.trim()) {
+              this.emitTranscriptionPreview(previewText, "partial");
+            }
           } catch (error) {
             logger.audio.error("Error processing final chunk:", error);
           }
@@ -612,11 +636,14 @@ export class RecordingManager extends EventEmitter {
         const transcriptionService = this.serviceManager.getService(
           "transcriptionService",
         );
-        await transcriptionService.processStreamingChunk({
+        const previewText = await transcriptionService.processStreamingChunk({
           sessionId,
           audioChunk: chunk,
           recordingStartedAt: this.recordingStartedAt || undefined,
         });
+        if (previewText.trim()) {
+          this.emitTranscriptionPreview(previewText, "partial");
+        }
       } catch (error) {
         logger.audio.error("Error processing chunk:", error);
       }
@@ -697,6 +724,8 @@ export class RecordingManager extends EventEmitter {
     this.audioChunks = [];
 
     // NORMAL - get transcription and paste
+    this.emitTranscriptionPreview(this.previewText, "processing");
+
     let result = "";
     try {
       const transcriptionService = this.serviceManager.getService(
@@ -750,6 +779,7 @@ export class RecordingManager extends EventEmitter {
     });
 
     if (result) {
+      this.emitTranscriptionPreview(result, "final");
       await this.pasteTranscription(result);
     } else {
       // Check for empty transcript notification
@@ -1052,6 +1082,13 @@ export class RecordingManager extends EventEmitter {
     this.recordingInitiatedAt = null;
     this.audioChunks = [];
     this.terminationCode = null;
+    this.previewText = "";
+    this.emit("transcription-preview", {
+      sessionId: null,
+      text: "",
+      status: "cleared",
+      timestamp: Date.now(),
+    });
     this.systemAudioMuted = false;
     this.soundsMuted = false;
     this.clearTimers();

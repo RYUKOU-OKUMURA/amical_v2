@@ -93,37 +93,36 @@ export const modelsRouter = createRouter({
         // Check authentication status for cloud model filtering
         const authService = ctx.serviceManager.getService("authService");
         const isAuthenticated = await authService.isAuthenticated();
+        const settingsService =
+          ctx.serviceManager.getService("settingsService");
+        const groqConfig = await settingsService.getGroqConfig();
+        const hasGroqConfig = Boolean(groqConfig?.apiKey);
 
         // Map available models to Model format using downloaded data if available
         let models = availableModels.map((m) => {
+          const providerType =
+            m.id === "amical-cloud"
+              ? PROVIDER_TYPES.amical
+              : m.provider === "Groq"
+                ? PROVIDER_TYPES.groq
+                : PROVIDER_TYPES.localWhisper;
+          const providerInstanceId = getSystemProviderInstanceId(providerType);
           const downloaded = downloadedModels[m.id];
           if (downloaded) {
             // Include setup field from available model metadata
             return {
               ...downloaded,
-              providerType:
-                m.id === "amical-cloud"
-                  ? PROVIDER_TYPES.amical
-                  : PROVIDER_TYPES.localWhisper,
-              providerInstanceId:
-                m.id === "amical-cloud"
-                  ? getSystemProviderInstanceId(PROVIDER_TYPES.amical)
-                  : getSystemProviderInstanceId(PROVIDER_TYPES.localWhisper),
+              providerType,
+              providerInstanceId,
               provider: m.provider,
               setup: m.setup,
-            } as Model & { setup: "offline" | "cloud" };
+            } as Model & { setup: "offline" | "cloud" | "api" };
           }
           // Create a partial Model for non-downloaded models
           return {
             id: m.id,
-            providerType:
-              m.id === "amical-cloud"
-                ? PROVIDER_TYPES.amical
-                : PROVIDER_TYPES.localWhisper,
-            providerInstanceId:
-              m.id === "amical-cloud"
-                ? getSystemProviderInstanceId(PROVIDER_TYPES.amical)
-                : getSystemProviderInstanceId(PROVIDER_TYPES.localWhisper),
+            providerType,
+            providerInstanceId,
             name: m.name,
             provider: m.provider,
             type: "speech" as const,
@@ -140,16 +139,19 @@ export const modelsRouter = createRouter({
             createdAt: new Date(),
             updatedAt: new Date(),
             setup: m.setup,
-          } as Model & { setup: "offline" | "cloud" };
+          } as Model & { setup: "offline" | "cloud" | "api" };
         });
 
         // Apply selectable filtering for dropdown/combobox
         if (input.selectable) {
           models = models.filter((m) => {
-            const model = m as Model & { setup: "offline" | "cloud" };
+            const model = m as Model & { setup: "offline" | "cloud" | "api" };
             // Filter cloud models if not authenticated
             if (model.setup === "cloud") {
               return isAuthenticated;
+            }
+            if (model.setup === "api") {
+              return hasGroqConfig;
             }
             // Filter local models that aren't downloaded
             return model.downloadedAt !== null;
@@ -313,6 +315,24 @@ export const modelsRouter = createRouter({
         throw new Error("Model manager service not initialized");
       }
       return await modelService.validateOllamaConnection(input.url);
+    }),
+
+  validateGroqConnection: procedure
+    .input(
+      z.object({
+        apiKey: z.string(),
+        baseURL: z.string().url().optional(),
+      }),
+    )
+    .mutation(async ({ input, ctx }): Promise<ValidationResult> => {
+      const modelService = ctx.serviceManager.getService("modelService");
+      if (!modelService) {
+        throw new Error("Model manager service not initialized");
+      }
+      return await modelService.validateGroqConnection(
+        input.apiKey,
+        input.baseURL,
+      );
     }),
 
   validateOpenAICompatibleConnection: procedure

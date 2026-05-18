@@ -762,6 +762,12 @@ class ModelService extends EventEmitter {
 
   // Check if any models are available for transcription
   async isAvailable(): Promise<boolean> {
+    const selectedModelId = await this.getSelectedModel();
+    if (selectedModelId?.startsWith("groq-")) {
+      const groqConfig = await this.settingsService.getGroqConfig();
+      return Boolean(groqConfig?.apiKey);
+    }
+
     const downloadedModels = await this.getValidDownloadedModels();
     return Object.keys(downloadedModels).length > 0;
   }
@@ -769,7 +775,18 @@ class ModelService extends EventEmitter {
   // Get available model IDs for transcription
   async getAvailableModelsForTranscription(): Promise<string[]> {
     const downloadedModels = await this.getValidDownloadedModels();
-    return Object.keys(downloadedModels);
+    const modelIds = Object.keys(downloadedModels);
+    const groqConfig = await this.settingsService.getGroqConfig();
+
+    if (groqConfig?.apiKey) {
+      modelIds.push(
+        ...AVAILABLE_MODELS.filter((model) => model.provider === "Groq").map(
+          (model) => model.id,
+        ),
+      );
+    }
+
+    return modelIds;
   }
 
   // Get currently selected model for transcription
@@ -889,6 +906,16 @@ class ModelService extends EventEmitter {
         }
 
         logger.main.info("Selecting cloud model", { modelId });
+      } else if (availableModel?.setup === "api") {
+        const groqConfig = await this.settingsService.getGroqConfig();
+        if (!groqConfig?.apiKey) {
+          throw new Error("Groq API key is required for Groq speech models");
+        }
+
+        logger.main.info("Selecting API speech model", {
+          modelId,
+          provider: availableModel.provider,
+        });
       } else {
         // Offline model - must be downloaded
         const downloadedModels = await this.getValidDownloadedModels();
@@ -961,6 +988,42 @@ class ModelService extends EventEmitter {
   ): Promise<ValidationResult> {
     try {
       const response = await fetch("https://openrouter.ai/api/v1/key", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "User-Agent": getUserAgent(),
+        },
+        signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: await extractProviderErrorMessage(response),
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: formatProviderRequestError(error),
+      };
+    }
+  }
+
+  /**
+   * Validate Groq connection by listing models with the provided API key.
+   */
+  async validateGroqConnection(
+    apiKey: string,
+    baseURL = "https://api.groq.com/openai/v1",
+  ): Promise<ValidationResult> {
+    const normalizedBaseURL = normalizeOpenAICompatibleBaseURL(baseURL);
+
+    try {
+      const response = await fetch(`${normalizedBaseURL}/models`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -1543,7 +1606,8 @@ class ModelService extends EventEmitter {
         const availableModel = AVAILABLE_MODELS.find(
           (m) => m.id === speechModelId,
         );
-        const isAmicalModel = availableModel?.provider === "Amical Cloud";
+        const isRemoteSpeechModel =
+          availableModel?.setup === "cloud" || availableModel?.setup === "api";
         const existsInDb = await modelExists(
           getSystemProviderInstanceId(PROVIDER_TYPES.localWhisper),
           "speech",
@@ -1554,8 +1618,22 @@ class ModelService extends EventEmitter {
           await this.settingsService.setDefaultSpeechModel(normalizedSelection);
         }
 
-        // Amical cloud models are always valid; local models must exist in DB
-        if (!isAmicalModel && !existsInDb) {
+        if (availableModel?.setup === "api") {
+          const groqConfig = await this.settingsService.getGroqConfig();
+          if (!groqConfig?.apiKey) {
+            logger.main.info("Clearing API speech model without credentials", {
+              modelId: speechModelId,
+            });
+            await this.applySpeechModelSelection(
+              null,
+              "auto-after-deletion",
+              speechModelId,
+            );
+          }
+        }
+
+        // Remote speech models are valid if their credentials are present; local models must exist in DB.
+        if (!isRemoteSpeechModel && !existsInDb) {
           logger.main.info("Clearing invalid default speech model", {
             modelId: speechModelId,
           });

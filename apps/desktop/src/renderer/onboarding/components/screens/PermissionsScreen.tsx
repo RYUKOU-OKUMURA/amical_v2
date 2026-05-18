@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api } from "@/trpc/react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -39,6 +39,7 @@ export function PermissionsScreen({
   const { t } = useTranslation();
   const [isRequestingMic, setIsRequestingMic] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
+  const hasAutoRequestedMic = useRef(false);
 
   // tRPC mutations
   const requestMicPermission =
@@ -73,6 +74,18 @@ export function PermissionsScreen({
       setIsRequestingMic(false);
     }
   };
+
+  useEffect(() => {
+    if (
+      permissions.microphone !== "not-determined" ||
+      hasAutoRequestedMic.current
+    ) {
+      return;
+    }
+
+    hasAutoRequestedMic.current = true;
+    void handleRequestMicrophone();
+  }, [permissions.microphone]);
 
   const handleOpenAccessibility = async () => {
     // Open System Preferences > Security & Privacy > Privacy > Accessibility

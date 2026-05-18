@@ -10,7 +10,7 @@
         "Package.resolved",
         ".swiftpm/**"
       ],
-      "outputs": [".build/**", "bin/SwiftHelper"],
+      "outputs": [".build/**", "bin/SwiftHelperRemake"],
       "cache": true
     }
   }

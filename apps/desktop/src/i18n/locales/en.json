@@ -1,6 +1,6 @@
 {
   "app": {
-    "loading": "Loading Amical..."
+    "loading": "Loading Amical remake..."
   },
   "errors": {
     "generic": "Something went wrong. Please try again."
@@ -19,7 +19,7 @@
     "version": "Version {{version}}"
   },
   "tray": {
-    "tooltip": "Amical",
+    "tooltip": "Amical remake",
     "openConsole": "Open Console",
     "about": "About",
     "quit": "Quit"
@@ -64,7 +64,7 @@
       "supportNote": "If this problem persists, please contact support or check the documentation for help."
     },
     "welcome": {
-      "title": "Welcome to Amical",
+      "title": "Welcome to Amical remake",
       "subtitle": "Select the features you're interested in to personalize your experience",
       "skip": "Skip onboarding",
       "comingSoon": "Coming Soon",
@@ -99,7 +99,7 @@
     },
     "permissions": {
       "title": "Setup Permissions",
-      "subtitle": "Amical needs a few permissions to work properly",
+      "subtitle": "Amical remake needs a few permissions to work properly",
       "waiting": "Waiting for permissions...",
       "polling": "Checking for permission changes...",
       "allGranted": {
@@ -125,11 +125,11 @@
       "accessibility": {
         "title": "Accessibility Access",
         "description": "Required for pasting transcription and global keyboard shortcuts (macOS only)",
-        "deniedHelp": "Add Amical to Accessibility in System Settings"
+        "deniedHelp": "Add Amical remake to Accessibility in System Settings"
       }
     },
     "discovery": {
-      "title": "How did you discover Amical?",
+      "title": "How did you discover Amical remake?",
       "subtitle": "This helps us understand where our users come from",
       "sources": {
         "searchEngine": "Search engine (Google, Bing, etc.)",
@@ -141,7 +141,7 @@
         "other": "Other"
       },
       "toast": {
-        "selectSource": "Please select how you discovered Amical",
+        "selectSource": "Please select how you discovered Amical remake",
         "otherDetailsRequired": "Please provide details for \"Other\""
       },
       "other": {
@@ -152,7 +152,7 @@
     },
     "modelSelection": {
       "title": "Choose Your AI Model",
-      "subtitle": "Select how you want Amical to process your audio",
+      "subtitle": "Select how you want Amical remake to process your audio",
       "completeSetupToContinue": "Complete setup to continue",
       "recommended": "Recommended",
       "prosLabel": "Pros:",
@@ -227,7 +227,7 @@
     },
     "completion": {
       "title": "Setup Complete!",
-      "start": "Start Using Amical",
+      "start": "Start Using Amical remake",
       "quickConfig": {
         "title": "Quick Configuration"
       },
@@ -260,7 +260,7 @@
         "noAudio": "No audio from \"{{microphone}}\"",
         "emptyTranscript": "No speech detected from \"{{microphone}}\"",
         "transcriptionFailed": "An error occurred during transcription",
-        "recordingDurationWarning": "Amical supports up to {{maxMinutes}} minutes of continuous dictation. Start a new dictation if needed.",
+        "recordingDurationWarning": "Amical remake supports up to {{maxMinutes}} minutes of continuous dictation. Start a new dictation if needed.",
         "recordingAutoStopped": "Max dictation duration reached. Start a new dictation if needed."
       },
       "action": {
@@ -284,7 +284,7 @@
         },
         "recordingDurationWarning": {
           "title": "Dictation will auto-stop in {{minutes}} minutes",
-          "description": "Amical supports up to {{maxMinutes}} minutes of continuous dictation. Start a new dictation if needed."
+          "description": "Amical remake supports up to {{maxMinutes}} minutes of continuous dictation. Start a new dictation if needed."
         },
         "recordingAutoStopped": {
           "title": "Dictation auto-stopped",
@@ -375,15 +375,15 @@
       },
       "about": {
         "title": "About",
-        "description": "About Amical and version information"
+        "description": "About Amical remake and version information"
       }
     },
     "sidebar": {
       "docs": "Docs",
       "community": "Community",
       "discordAlt": "Discord",
-      "logoAlt": "Amical Logo",
-      "brand": "Amical",
+      "logoAlt": "Amical remake Logo",
+      "brand": "Amical remake",
       "backToApp": "Back to app"
     },
     "search": {
@@ -438,7 +438,7 @@
         },
         "restartDialog": {
           "title": "Restart required",
-          "description": "Restart Amical to apply language changes. You can also apply on next start.",
+          "description": "Restart Amical remake to apply language changes. You can also apply on next start.",
           "restartNow": "Restart now",
           "later": "Apply on next start"
         },
@@ -494,7 +494,7 @@
       },
       "telemetry": {
         "label": "Anonymous Telemetry",
-        "description": "Help improve Amical by sharing anonymous usage data.",
+        "description": "Help improve Amical remake by sharing anonymous usage data.",
         "learnMore": "Learn more"
       },
       "dataLocation": {

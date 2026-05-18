@@ -1,6 +1,6 @@
 {
   "app": {
-    "loading": "Amicalを読み込み中..."
+    "loading": "Amical remakeを読み込み中..."
   },
   "errors": {
     "generic": "問題が発生しました。もう一度お試しください。"
@@ -19,9 +19,9 @@
     "version": "バージョン {{version}}"
   },
   "tray": {
-    "tooltip": "Amical",
+    "tooltip": "Amical remake",
     "openConsole": "コンソールを開く",
-    "about": "Amicalについて",
+    "about": "Amical remakeについて",
     "quit": "終了"
   },
   "updater": {
@@ -64,7 +64,7 @@
       "supportNote": "この問題が続く場合は、サポートに連絡するか、ドキュメントを確認してください。"
     },
     "welcome": {
-      "title": "Amicalへようこそ",
+      "title": "Amical remakeへようこそ",
       "subtitle": "興味のある機能を選択して、体験をカスタマイズしましょう",
       "skip": "オンボーディングをスキップ",
       "comingSoon": "近日公開",
@@ -99,7 +99,7 @@
     },
     "permissions": {
       "title": "権限の設定",
-      "subtitle": "Amicalが正しく動作するためにいくつかの権限が必要です",
+      "subtitle": "Amical remakeが正しく動作するためにいくつかの権限が必要です",
       "waiting": "権限を待っています...",
       "polling": "権限の変更を確認中...",
       "allGranted": {
@@ -125,11 +125,11 @@
       "accessibility": {
         "title": "アクセシビリティへのアクセス",
         "description": "文字起こしの貼り付けとグローバルキーボードショートカットに必要です（macOSのみ）",
-        "deniedHelp": "システム設定のアクセシビリティにAmicalを追加してください"
+        "deniedHelp": "システム設定のアクセシビリティにAmical remakeを追加してください"
       }
     },
     "discovery": {
-      "title": "Amicalをどこで知りましたか？",
+      "title": "Amical remakeをどこで知りましたか？",
       "subtitle": "ユーザーの方々がどこから来ているか理解するのに役立ちます",
       "sources": {
         "searchEngine": "検索エンジン（Google、Bingなど）",
@@ -141,7 +141,7 @@
         "other": "その他"
       },
       "toast": {
-        "selectSource": "Amicalをどこで知ったか選択してください",
+        "selectSource": "Amical remakeをどこで知ったか選択してください",
         "otherDetailsRequired": "「その他」の詳細を入力してください"
       },
       "other": {
@@ -152,7 +152,7 @@
     },
     "modelSelection": {
       "title": "AIモデルを選択",
-      "subtitle": "Amicalがオーディオを処理する方法を選択してください",
+      "subtitle": "Amical remakeがオーディオを処理する方法を選択してください",
       "completeSetupToContinue": "続行するにはセットアップを完了してください",
       "recommended": "おすすめ",
       "prosLabel": "メリット：",
@@ -227,7 +227,7 @@
     },
     "completion": {
       "title": "セットアップ完了！",
-      "start": "Amicalを使い始める",
+      "start": "Amical remakeを使い始める",
       "quickConfig": {
         "title": "クイック設定"
       },
@@ -260,7 +260,7 @@
         "noAudio": "「{{microphone}}」からの音声がありません",
         "emptyTranscript": "「{{microphone}}」から音声が検出されませんでした",
         "transcriptionFailed": "文字起こし中にエラーが発生しました",
-        "recordingDurationWarning": "Amicalは最大{{maxMinutes}}分間の連続ディクテーションに対応しています。必要に応じて新しいディクテーションを開始してください。",
+        "recordingDurationWarning": "Amical remakeは最大{{maxMinutes}}分間の連続ディクテーションに対応しています。必要に応じて新しいディクテーションを開始してください。",
         "recordingAutoStopped": "最大ディクテーション時間に達しました。必要に応じて新しいディクテーションを開始してください。"
       },
       "action": {
@@ -284,7 +284,7 @@
         },
         "recordingDurationWarning": {
           "title": "ディクテーションは{{minutes}}分後に自動停止します",
-          "description": "Amicalは最大{{maxMinutes}}分間の連続ディクテーションに対応しています。必要に応じて新しいディクテーションを開始してください。"
+          "description": "Amical remakeは最大{{maxMinutes}}分間の連続ディクテーションに対応しています。必要に応じて新しいディクテーションを開始してください。"
         },
         "recordingAutoStopped": {
           "title": "ディクテーションが自動停止しました",
@@ -374,16 +374,16 @@
         "description": "高度な設定オプション"
       },
       "about": {
-        "title": "Amicalについて",
-        "description": "Amicalとバージョン情報"
+        "title": "Amical remakeについて",
+        "description": "Amical remakeとバージョン情報"
       }
     },
     "sidebar": {
       "docs": "ドキュメント",
       "community": "コミュニティ",
       "discordAlt": "Discord",
-      "logoAlt": "Amical ロゴ",
-      "brand": "Amical",
+      "logoAlt": "Amical remake ロゴ",
+      "brand": "Amical remake",
       "backToApp": "アプリに戻る"
     },
     "search": {
@@ -438,7 +438,7 @@
         },
         "restartDialog": {
           "title": "再起動が必要です",
-          "description": "言語の変更を適用するにはAmicalを再起動してください。次回起動時に適用することもできます。",
+          "description": "言語の変更を適用するにはAmical remakeを再起動してください。次回起動時に適用することもできます。",
           "restartNow": "今すぐ再起動",
           "later": "次回起動時に適用"
         },
@@ -483,7 +483,7 @@
       },
       "telemetry": {
         "label": "匿名テレメトリー",
-        "description": "匿名の使用データを共有してAmicalの改善にご協力ください。",
+        "description": "匿名の使用データを共有してAmical remakeの改善にご協力ください。",
         "learnMore": "詳しく見る"
       },
       "dataLocation": {
@@ -535,7 +535,7 @@
       }
     },
     "about": {
-      "title": "Amicalについて",
+      "title": "Amical remakeについて",
       "description": "バージョン情報、リソース、サポートリンク",
       "toast": {
         "upToDate": "最新バージョンです"

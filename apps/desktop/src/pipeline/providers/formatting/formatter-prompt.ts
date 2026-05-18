@@ -368,7 +368,10 @@ export function detectApplicationType(
   const bundleId = accessibilityContext.context.application.bundleIdentifier;
 
   // Amical's own app: align to Axis prompt format but preserve appType value.
-  if (bundleId === "ai.amical.desktop") {
+  if (
+    bundleId === "ai.amical.desktop" ||
+    bundleId === "ai.amical.remake.desktop"
+  ) {
     return "amical-notes";
   }
 

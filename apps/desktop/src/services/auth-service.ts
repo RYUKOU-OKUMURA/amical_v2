@@ -13,6 +13,32 @@ interface AuthConfig {
   redirectUri: string;
 }
 
+const DEFAULT_AUTH_REDIRECT_URI = "amical-remake://oauth/callback";
+const DEFAULT_DEV_AUTHORIZATION_ENDPOINT =
+  "http://localhost:5001/api/auth/oauth2/authorize";
+const DEFAULT_DEV_TOKEN_ENDPOINT =
+  "http://localhost:5001/api/auth/oauth2/token";
+const DEFAULT_PROD_AUTHORIZATION_ENDPOINT = "https://login.amical.ai/authorize";
+const DEFAULT_PROD_TOKEN_ENDPOINT =
+  "https://api.amical.ai/api/auth/oauth2/token";
+
+function getDefaultAuthEndpoints(): {
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+} {
+  if (process.env.NODE_ENV === "development") {
+    return {
+      authorizationEndpoint: DEFAULT_DEV_AUTHORIZATION_ENDPOINT,
+      tokenEndpoint: DEFAULT_DEV_TOKEN_ENDPOINT,
+    };
+  }
+
+  return {
+    authorizationEndpoint: DEFAULT_PROD_AUTHORIZATION_ENDPOINT,
+    tokenEndpoint: DEFAULT_PROD_TOKEN_ENDPOINT,
+  };
+}
+
 export interface AuthState {
   isAuthenticated: boolean;
   idToken: string | null;
@@ -59,14 +85,22 @@ export class AuthService extends EventEmitter {
   private constructor() {
     super();
 
+    const defaults = getDefaultAuthEndpoints();
+
     this.config = {
       clientId: process.env.AUTH_CLIENT_ID || __BUNDLED_AUTH_CLIENT_ID,
       authorizationEndpoint:
         process.env.AUTHORIZATION_ENDPOINT ||
-        __BUNDLED_AUTH_AUTHORIZATION_ENDPOINT,
+        __BUNDLED_AUTH_AUTHORIZATION_ENDPOINT ||
+        defaults.authorizationEndpoint,
       tokenEndpoint:
-        process.env.AUTH_TOKEN_ENDPOINT || __BUNDLED_AUTH_TOKEN_ENDPOINT,
-      redirectUri: process.env.AUTH_REDIRECT_URI || __BUNDLED_AUTH_REDIRECT_URI,
+        process.env.AUTH_TOKEN_ENDPOINT ||
+        __BUNDLED_AUTH_TOKEN_ENDPOINT ||
+        defaults.tokenEndpoint,
+      redirectUri:
+        process.env.AUTH_REDIRECT_URI ||
+        __BUNDLED_AUTH_REDIRECT_URI ||
+        DEFAULT_AUTH_REDIRECT_URI,
     };
 
     logger.main.info("AuthService initialized with config:", {
@@ -117,6 +151,18 @@ export class AuthService extends EventEmitter {
    */
   async login(): Promise<void> {
     try {
+      if (!this.config.clientId) {
+        throw new Error(
+          "Cloud sign-in is not configured. Set AUTH_CLIENT_ID before building the app.",
+        );
+      }
+
+      if (!this.config.authorizationEndpoint || !this.config.tokenEndpoint) {
+        throw new Error(
+          "Cloud sign-in is not configured. Set AUTHORIZATION_ENDPOINT and AUTH_TOKEN_ENDPOINT before building the app.",
+        );
+      }
+
       // Generate PKCE parameters
       const { verifier, challenge } = this.generatePKCE();
       const state = this.generateState();

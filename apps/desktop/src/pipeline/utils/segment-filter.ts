@@ -2,6 +2,13 @@ import { HALLUCINATION_PHRASES } from "../../data/hallucination-phrases";
 
 /** Lower threshold for known hallucination phrases */
 const HALLUCINATION_THRESHOLD = 0.4;
+const COMPACT_JAPANESE_HALLUCINATION_PATTERNS = [
+  "ご視聴ありがとうございました",
+  "ご視聴ありがとうございます",
+  "次の動画でお会いしましょう",
+  "チャンネル登録お願いします",
+  "チャンネル登録よろしく",
+];
 
 /**
  * Normalizes text for hallucination lookup:
@@ -13,11 +20,30 @@ function normalizeText(text: string): string {
   return text.normalize("NFC").toLowerCase().trim();
 }
 
+function compactText(text: string): string {
+  return normalizeText(text).replace(
+    /[\s、。,.!！?？「」『』（）()[\]【】"'`]/g,
+    "",
+  );
+}
+
 /**
  * Checks if text matches a known hallucination phrase
  */
-function isKnownHallucination(text: string): boolean {
-  return HALLUCINATION_PHRASES.has(normalizeText(text));
+export function isKnownHallucinationText(text: string): boolean {
+  const normalized = normalizeText(text);
+  if (HALLUCINATION_PHRASES.has(normalized)) {
+    return true;
+  }
+
+  const compacted = compactText(text);
+  return COMPACT_JAPANESE_HALLUCINATION_PATTERNS.some((phrase) => {
+    const compactedPhrase = compactText(phrase);
+    return (
+      compacted.includes(compactedPhrase) &&
+      compacted.length <= compactedPhrase.length + 12
+    );
+  });
 }
 
 interface Segment {
@@ -41,7 +67,7 @@ export function shouldDropSegment(segment: Segment): boolean {
   if (
     segment.noSpeechProb !== undefined &&
     segment.noSpeechProb > HALLUCINATION_THRESHOLD &&
-    isKnownHallucination(segment.text)
+    isKnownHallucinationText(segment.text)
   ) {
     return true;
   }

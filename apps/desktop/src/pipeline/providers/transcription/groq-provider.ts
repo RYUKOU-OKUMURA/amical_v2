@@ -12,10 +12,21 @@ import { getUserAgent } from "../../../utils/http-client";
 import { normalizeOpenAICompatibleBaseURL } from "../../../utils/provider-utils";
 import { getSpeechModelIdFromStoredSelection } from "../../../utils/model-selection";
 import { extractSpeechFromVad } from "../../utils/vad-audio-filter";
+import {
+  isKnownHallucinationText,
+  shouldDropSegment,
+} from "../../utils/segment-filter";
 import { buildWhisperPrompt } from "./whisper-prompt";
+
+interface GroqTranscriptionSegment {
+  text?: string;
+  no_speech_prob?: number;
+  noSpeechProb?: number;
+}
 
 interface GroqTranscriptionResponse {
   text?: string;
+  segments?: GroqTranscriptionSegment[];
   error?: {
     message?: string;
     type?: string;
@@ -25,7 +36,19 @@ interface GroqTranscriptionResponse {
 
 const SAMPLE_RATE = 16000;
 const FRAME_SIZE = 512;
-const MIN_AUDIO_DURATION_MS = 1400;
+const SPEECH_PROBABILITY_THRESHOLD = 0.2;
+const MIN_AUDIO_DURATION_MS = 5000;
+const MAX_AUDIO_DURATION_MS = 15000;
+const MIN_SILENCE_DURATION_MS = 700;
+const GROQ_DICTATION_HOTWORDS = [
+  "Amical",
+  "Groq",
+  "Whisper",
+  "API",
+  "large-v3",
+  "large-v3-turbo",
+  "V3 Turbo",
+];
 
 function groqModelIdFromSelection(modelId: string | undefined): string {
   if (!modelId) {
@@ -68,6 +91,7 @@ export class GroqProvider implements TranscriptionProvider {
 
   private frameBuffer: Float32Array[] = [];
   private frameBufferSpeechProbabilities: number[] = [];
+  private currentSilenceFrameCount = 0;
 
   constructor(private settingsService: SettingsService) {}
 
@@ -91,6 +115,12 @@ export class GroqProvider implements TranscriptionProvider {
     this.frameBuffer.push(audioData);
     this.frameBufferSpeechProbabilities.push(speechProbability);
 
+    if (speechProbability > SPEECH_PROBABILITY_THRESHOLD) {
+      this.currentSilenceFrameCount = 0;
+    } else {
+      this.currentSilenceFrameCount++;
+    }
+
     if (!this.shouldTranscribe()) {
       return { text: "" };
     }
@@ -109,13 +139,34 @@ export class GroqProvider implements TranscriptionProvider {
   reset(): void {
     this.frameBuffer = [];
     this.frameBufferSpeechProbabilities = [];
+    this.currentSilenceFrameCount = 0;
   }
 
   private shouldTranscribe(): boolean {
     const audioDurationMs =
       ((this.frameBuffer.length * FRAME_SIZE) / SAMPLE_RATE) * 1000;
+    const silenceDurationMs =
+      ((this.currentSilenceFrameCount * FRAME_SIZE) / SAMPLE_RATE) * 1000;
 
-    return audioDurationMs >= MIN_AUDIO_DURATION_MS;
+    if (audioDurationMs >= MAX_AUDIO_DURATION_MS) {
+      logger.transcription.debug("Transcribing Groq buffer at max duration", {
+        audioDurationMs,
+      });
+      return true;
+    }
+
+    if (
+      audioDurationMs >= MIN_AUDIO_DURATION_MS &&
+      silenceDurationMs >= MIN_SILENCE_DURATION_MS
+    ) {
+      logger.transcription.debug("Transcribing Groq buffer after silence", {
+        audioDurationMs,
+        silenceDurationMs,
+      });
+      return true;
+    }
+
+    return false;
   }
 
   private aggregateFrames(): Float32Array {
@@ -169,8 +220,12 @@ export class GroqProvider implements TranscriptionProvider {
         await this.settingsService.getDefaultSpeechModel(),
       ),
     );
+    const vocabulary = [
+      ...(context.vocabulary ?? []),
+      ...GROQ_DICTATION_HOTWORDS,
+    ];
     const prompt = buildWhisperPrompt({
-      vocabulary: context.vocabulary,
+      vocabulary,
       previousTranscription: context.aggregatedTranscription,
       beforeText:
         context.accessibilityContext?.context?.textSelection?.preSelectionText,
@@ -179,10 +234,12 @@ export class GroqProvider implements TranscriptionProvider {
     const formData = new FormData();
     formData.append("file", toWavBlob(speechAudio), "dictation.wav");
     formData.append("model", model);
-    formData.append("response_format", "json");
+    formData.append("response_format", "verbose_json");
+    formData.append("timestamp_granularities[]", "segment");
     formData.append("temperature", "0");
-    if (context.language) {
-      formData.append("language", context.language);
+    const language = normalizeLanguageCode(context.language);
+    if (language) {
+      formData.append("language", language);
     }
     if (prompt) {
       formData.append("prompt", prompt);
@@ -220,7 +277,7 @@ export class GroqProvider implements TranscriptionProvider {
       });
     }
 
-    const text = body?.text ?? "";
+    const text = getFilteredGroqText(body);
     logger.transcription.info("Groq transcription completed", {
       textLength: text.length,
       duration,
@@ -229,4 +286,32 @@ export class GroqProvider implements TranscriptionProvider {
 
     return { text };
   }
+}
+
+function normalizeLanguageCode(
+  language: string | undefined,
+): string | undefined {
+  if (!language || language === "auto") {
+    return undefined;
+  }
+
+  return language.split(/[-_]/)[0]?.toLowerCase();
+}
+
+function getFilteredGroqText(body: GroqTranscriptionResponse | null): string {
+  const segments = body?.segments ?? [];
+  if (segments.length > 0) {
+    const kept = segments.filter(
+      (segment) =>
+        !shouldDropSegment({
+          text: segment.text ?? "",
+          noSpeechProb: segment.noSpeechProb ?? segment.no_speech_prob,
+        }),
+    );
+    const text = kept.map((segment) => segment.text ?? "").join("");
+    return isKnownHallucinationText(text) ? "" : text;
+  }
+
+  const text = body?.text ?? "";
+  return isKnownHallucinationText(text) ? "" : text;
 }

@@ -9,6 +9,9 @@ import { AppManager } from "./core/app-manager";
 import { isWindows } from "../utils/platform";
 import { ServiceManager } from "./managers/service-manager";
 
+const APP_BUNDLE_ID = "ai.amical.remake.desktop";
+const APP_PROTOCOL = "amical-remake";
+
 // Setup renderer logging relay (allows renderer to send logs to main process)
 ipcMain.handle(
   "log-message",
@@ -28,18 +31,18 @@ if (started) {
 
 // Set App User Model ID for Windows (required for Squirrel.Windows)
 if (isWindows()) {
-  app.setAppUserModelId("ai.amical.desktop");
+  app.setAppUserModelId(APP_BUNDLE_ID);
 }
 
-// Register the amical:// protocol
+// Register the custom URL protocol
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient("amical", process.execPath, [
+    app.setAsDefaultProtocolClient(APP_PROTOCOL, process.execPath, [
       process.argv[1],
     ]);
   }
 } else {
-  app.setAsDefaultProtocolClient("amical");
+  app.setAsDefaultProtocolClient(APP_PROTOCOL);
 }
 
 // Enforce single instance
@@ -74,7 +77,7 @@ app.on("second-instance", (_event, commandLine) => {
   }
 
   // Check if this is a protocol launch on Windows/Linux
-  const url = commandLine.find((arg) => arg.startsWith("amical://"));
+  const url = commandLine.find((arg) => arg.startsWith(`${APP_PROTOCOL}://`));
   if (url) {
     if (isInitialized) {
       appManager.handleDeepLink(url);

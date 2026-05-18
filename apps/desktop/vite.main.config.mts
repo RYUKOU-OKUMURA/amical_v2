@@ -13,17 +13,23 @@ export default defineConfig({
     ),
     __BUNDLED_AUTH_CLIENT_ID: JSON.stringify(process.env.AUTH_CLIENT_ID || ""),
     __BUNDLED_AUTH_AUTHORIZATION_ENDPOINT: JSON.stringify(
-      process.env.AUTHORIZATION_ENDPOINT || "",
+      process.env.AUTHORIZATION_ENDPOINT ||
+        (process.env.NODE_ENV === "development"
+          ? "http://localhost:5001/api/auth/oauth2/authorize"
+          : "https://login.amical.ai/authorize"),
     ),
     __BUNDLED_AUTH_TOKEN_ENDPOINT: JSON.stringify(
-      process.env.AUTH_TOKEN_ENDPOINT || "",
+      process.env.AUTH_TOKEN_ENDPOINT ||
+        (process.env.NODE_ENV === "development"
+          ? "http://localhost:5001/api/auth/oauth2/token"
+          : "https://api.amical.ai/api/auth/oauth2/token"),
     ),
     __BUNDLED_API_ENDPOINT: JSON.stringify(process.env.API_ENDPOINT || ""),
     __BUNDLED_FEEDBACK_SURVEY_ID: JSON.stringify(
       process.env.FEEDBACK_SURVEY_ID || "",
     ),
     __BUNDLED_AUTH_REDIRECT_URI: JSON.stringify(
-      process.env.AUTH_REDIRECT_URI || "",
+      process.env.AUTH_REDIRECT_URI || "amical-remake://oauth/callback",
     ),
   },
   build: {

@@ -5,9 +5,9 @@
   "private": true,
   "scripts": {
     "build": "pnpm --filter @amical/types generate:all && turbo run build:native",
-    "build:native": "mkdir -p .build && swift build --configuration release && mkdir -p bin && cp .build/release/SwiftHelper bin/SwiftHelper",
+    "build:native": "mkdir -p .build && swift build --configuration release && rm -rf bin && mkdir -p bin && cp .build/release/SwiftHelperRemake bin/SwiftHelperRemake",
     "clean": "rm -rf .build bin .turbo",
-    "dev": "pnpm --filter @amical/types generate:all && swift build --configuration debug && mkdir -p bin && cp .build/debug/SwiftHelper bin/SwiftHelper"
+    "dev": "pnpm --filter @amical/types generate:all && swift build --configuration debug && rm -rf bin && mkdir -p bin && cp .build/debug/SwiftHelperRemake bin/SwiftHelperRemake"
   },
   "files": [
     "bin/*"

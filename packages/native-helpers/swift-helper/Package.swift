@@ -4,7 +4,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "SwiftHelper",
+    name: "SwiftHelperRemake",
     platforms: [
         .macOS(.v10_15) // Set a deployment target, e.g., macOS 10.15 or later
     ],
@@ -19,8 +19,9 @@ let package = Package(
             publicHeadersPath: "include"
         ),
         .executableTarget(
-            name: "SwiftHelper",
+            name: "SwiftHelperRemake",
             dependencies: ["ObjCExceptionCatcher"],
+            path: "Sources/SwiftHelper",
             resources: [
                 .embedInCode("Resources/rec-start.mp3"),
                 .embedInCode("Resources/rec-stop.mp3")

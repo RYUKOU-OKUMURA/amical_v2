@@ -22,6 +22,7 @@ import {
   copyFileSync,
 } from "node:fs";
 import { join, normalize } from "node:path";
+import { execFileSync } from "node:child_process";
 // Use flora-colossus for finding all dependencies of EXTERNAL_DEPENDENCIES
 // flora-colossus is maintained by MarshallOfSound (a top electron-forge contributor)
 // already included as a dependency of electron-packager/galactus (so we do NOT have to add it to package.json)
@@ -341,6 +342,45 @@ const config: ForgeConfig = {
     },
     postPackage: async (_forgeConfig, options) => {
       const { outputPaths, platform } = options;
+      const projectRoot = normalize(__dirname);
+
+      if (platform === "darwin" && process.env.SKIP_CODESIGNING === "true") {
+        const entitlementsPath = join(projectRoot, "entitlements.mac.plist");
+
+        for (const outputPath of outputPaths) {
+          const normalizedOutputPath = normalize(outputPath);
+          const appPath = normalizedOutputPath.endsWith(".app")
+            ? normalizedOutputPath
+            : join(
+                normalizedOutputPath,
+                readdirSync(normalizedOutputPath).find((item) =>
+                  item.endsWith(".app"),
+                ) ?? "",
+              );
+
+          if (!appPath.endsWith(".app") || !existsSync(appPath)) {
+            throw new Error(
+              `[postPackage] Could not find packaged macOS app in ${normalizedOutputPath}`,
+            );
+          }
+
+          console.log(`[postPackage] Ad-hoc signing ${appPath}...`);
+          execFileSync(
+            "codesign",
+            [
+              "--force",
+              "--deep",
+              "--sign",
+              "-",
+              "--entitlements",
+              entitlementsPath,
+              appPath,
+            ],
+            { stdio: "inherit" },
+          );
+        }
+      }
+
       // =====================================================================
       // Bundle VC++ Runtime DLLs for Windows
       // =====================================================================
@@ -402,10 +442,10 @@ const config: ForgeConfig = {
       unpack:
         "{*.node,*.dylib,*.so,*.dll,*.metal,**/node_modules/@amical/whisper-wrapper/**,**/whisper.cpp/**,**/.vite/build/whisper-worker-fork.js,**/node_modules/jest-worker/**,**/onnxruntime-node/bin/**}",
     },
-    name: "Amical",
-    executableName: "Amical",
+    name: "Amical remake",
+    executableName: "Amical remake",
     icon: "./assets/logo", // Path to your icon file
-    appBundleId: "ai.amical.desktop", // Proper bundle ID
+    appBundleId: "ai.amical.remake.desktop", // Proper bundle ID
     extraResource: [
       `${process.platform === "win32" ? "../../packages/native-helpers/windows-helper/bin" : "../../packages/native-helpers/swift-helper/bin"}`,
       "./src/db/migrations",
@@ -421,15 +461,15 @@ const config: ForgeConfig = {
         "This app needs access to your microphone to record audio for transcription.",
       CFBundleURLTypes: [
         {
-          CFBundleURLSchemes: ["amical"],
-          CFBundleURLName: "ai.amical.desktop",
+          CFBundleURLSchemes: ["amical-remake"],
+          CFBundleURLName: "ai.amical.remake.desktop",
         },
       ],
     },
     protocols: [
       {
-        name: "Amical",
-        schemes: ["amical"],
+        name: "Amical remake",
+        schemes: ["amical-remake"],
       },
     ],
     // Code signing configuration for macOS
@@ -438,6 +478,9 @@ const config: ForgeConfig = {
       : {
           osxSign: {
             identity: process.env.CODESIGNING_IDENTITY,
+            entitlements: "./entitlements.mac.plist",
+            entitlementsInherit: "./entitlements.mac.plist",
+            hardenedRuntime: true,
             // Apply different entitlements based on file path
             optionsForFile: (filePath: string) => {
               // Apply minimal entitlements to Node binary
@@ -546,7 +589,7 @@ const config: ForgeConfig = {
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({
-      name: "Amical",
+      name: "AmicalRemake",
       setupIcon: "./assets/logo.ico",
     }),
     new MakerZIP(

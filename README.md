@@ -29,6 +29,7 @@
 - [⬇️ Download](#️-download)
 - [🔮 Overview](#-overview)
 - [✨ Features](#-features)
+- [🛠 Local Customizations](#-local-customizations)
 - [🔰 Tech Stack](#-tech-stack)
 - [🤗 Contributing](#-contributing)
 - [🎗 License](#-license)
@@ -88,6 +89,15 @@ Context-aware dictation that adapts to what you're doing: drafting an email, cha
 🔐 Privacy-first: works offline, one click setup of local models in-app ✔︎
 
 🪟 Floating widget for frictionless start/stop with custom hotkeys ✔︎
+
+## 🛠 Local Customizations
+
+This workspace includes personal desktop-app customizations on top of upstream Amical:
+
+- Live "pending input text" preview in the floating dictation widget.
+- Groq speech-to-text support for low-latency Whisper transcription via API key.
+
+See [docs/customization.md](docs/customization.md) for usage, implementation notes, and verification commands.
 
 ## 🔰 Tech Stack
 

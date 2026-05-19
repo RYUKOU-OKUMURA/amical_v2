@@ -41,6 +41,7 @@ import {
   isAmicalCloudSelectionValue,
 } from "../utils/model-selection";
 import { countWords } from "../utils/dictation-stats";
+import { applyLightweightTranscriptionCleanup } from "../pipeline/utils/transcription-cleanup";
 
 interface CompletedTranscriptionPersistenceJob {
   sessionId: string;
@@ -592,6 +593,7 @@ export class TranscriptionService {
         vocabulary: session.context.sharedData.vocabulary,
         accessibilityContext: session.context.sharedData.accessibilityContext,
         replacements: session.context.sharedData.replacements,
+        requestedLanguage,
         formattingStyle:
           session.context.sharedData.userPreferences?.formattingStyle,
       });
@@ -920,6 +922,7 @@ export class TranscriptionService {
     vocabulary?: string[];
     accessibilityContext?: StreamingSession["context"]["sharedData"]["accessibilityContext"];
     replacements: Map<string, string>;
+    requestedLanguage?: string;
     formattingStyle?: string;
   }): Promise<{
     text: string;
@@ -1008,6 +1011,21 @@ export class TranscriptionService {
             { provider: model.provider },
           );
         }
+      }
+    }
+
+    const transcriptionSettings =
+      await this.settingsService.getTranscriptionSettings();
+    if (!formattingUsed && transcriptionSettings?.enablePunctuation !== false) {
+      const cleanedText = applyLightweightTranscriptionCleanup(text, {
+        language: options.requestedLanguage,
+      });
+      if (cleanedText !== text) {
+        logger.transcription.info("Applied lightweight transcription cleanup", {
+          originalLength: text.length,
+          newLength: cleanedText.length,
+        });
+        text = cleanedText;
       }
     }
 
@@ -1213,6 +1231,7 @@ export class TranscriptionService {
       usedCloudProvider,
       vocabulary,
       replacements: context.sharedData.replacements,
+      requestedLanguage: language,
       formattingStyle: context.sharedData.userPreferences?.formattingStyle,
     });
 

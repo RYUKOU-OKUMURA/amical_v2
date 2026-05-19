@@ -20,6 +20,11 @@ export class GroqProvider extends OpenAICompatibleSpeechProvider {
       defaultModel: "whisper-large-v3-turbo",
       modelPrefix: "groq-",
       hotwords: GROQ_DICTATION_HOTWORDS,
+      timing: {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 4000,
+        minSilenceDurationMs: 384,
+      },
       getConfig: (service) => service.getGroqConfig(),
       missingKeyTitle: "Groq API key missing",
       missingKeyMessage: "Add your Groq API key in AI Models before dictating.",

@@ -13,8 +13,9 @@ import { normalizeOpenAICompatibleBaseURL } from "../../../utils/provider-utils"
 import { getSpeechModelIdFromStoredSelection } from "../../../utils/model-selection";
 import { extractSpeechFromVad } from "../../utils/vad-audio-filter";
 import {
-  isKnownHallucinationText,
+  shouldDropCompleteTranscription,
   shouldDropSegment,
+  type CompleteTranscriptionQuality,
 } from "../../utils/segment-filter";
 import { buildWhisperPrompt } from "./whisper-prompt";
 
@@ -46,6 +47,7 @@ interface OpenAICompatibleSpeechProviderOptions {
   defaultModel: string;
   modelPrefix: string;
   hotwords: readonly string[];
+  timing?: Partial<OpenAICompatibleSpeechTiming>;
   getConfig: (
     settingsService: SettingsService,
   ) => Promise<OpenAICompatibleSpeechConfig | undefined>;
@@ -55,10 +57,20 @@ interface OpenAICompatibleSpeechProviderOptions {
 
 const SAMPLE_RATE = 16000;
 const FRAME_SIZE = 512;
-const SPEECH_PROBABILITY_THRESHOLD = 0.2;
-const MIN_AUDIO_DURATION_MS = 5000;
-const MAX_AUDIO_DURATION_MS = 15000;
-const MIN_SILENCE_DURATION_MS = 700;
+
+interface OpenAICompatibleSpeechTiming {
+  speechProbabilityThreshold: number;
+  minAudioDurationMs: number;
+  maxAudioDurationMs: number;
+  minSilenceDurationMs: number;
+}
+
+const DEFAULT_TIMING: OpenAICompatibleSpeechTiming = {
+  speechProbabilityThreshold: 0.2,
+  minAudioDurationMs: 5000,
+  maxAudioDurationMs: 15000,
+  minSilenceDurationMs: 700,
+};
 
 function modelIdFromSelection(
   selection: string | undefined,
@@ -115,6 +127,7 @@ function normalizeLanguageCode(
 
 function getFilteredText(
   body: OpenAICompatibleTranscriptionResponse | null,
+  quality: CompleteTranscriptionQuality,
 ): string {
   const segments = body?.segments ?? [];
   if (segments.length > 0) {
@@ -126,11 +139,43 @@ function getFilteredText(
         }),
     );
     const text = kept.map((segment) => segment.text ?? "").join("");
-    return isKnownHallucinationText(text) ? "" : text;
+    return shouldDropCompleteTranscription(text, quality) ? "" : text;
   }
 
   const text = body?.text ?? "";
-  return isKnownHallucinationText(text) ? "" : text;
+  return shouldDropCompleteTranscription(text, quality) ? "" : text;
+}
+
+function getSpeechQuality(
+  vadProbs: number[],
+  speechSegments: Array<{ start: number; end: number }>,
+  speechAudio: Float32Array,
+): CompleteTranscriptionQuality {
+  let speechProbabilitySum = 0;
+  let speechProbabilityCount = 0;
+  let maxSpeechProbability = 0;
+
+  for (const segment of speechSegments) {
+    for (let i = segment.start; i <= segment.end; i++) {
+      const probability = vadProbs[i];
+      if (typeof probability !== "number") {
+        continue;
+      }
+      speechProbabilitySum += probability;
+      speechProbabilityCount++;
+      maxSpeechProbability = Math.max(maxSpeechProbability, probability);
+    }
+  }
+
+  return {
+    speechDurationMs: (speechAudio.length / SAMPLE_RATE) * 1000,
+    averageSpeechProbability:
+      speechProbabilityCount > 0
+        ? speechProbabilitySum / speechProbabilityCount
+        : undefined,
+    maxSpeechProbability:
+      speechProbabilityCount > 0 ? maxSpeechProbability : undefined,
+  };
 }
 
 export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
@@ -139,12 +184,17 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
   private frameBuffer: Float32Array[] = [];
   private frameBufferSpeechProbabilities: number[] = [];
   private currentSilenceFrameCount = 0;
+  private timing: OpenAICompatibleSpeechTiming;
 
   constructor(
     private settingsService: SettingsService,
     private options: OpenAICompatibleSpeechProviderOptions,
   ) {
     this.name = options.name;
+    this.timing = {
+      ...DEFAULT_TIMING,
+      ...options.timing,
+    };
   }
 
   async warmup(): Promise<void> {
@@ -167,7 +217,7 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     this.frameBuffer.push(audioData);
     this.frameBufferSpeechProbabilities.push(speechProbability);
 
-    if (speechProbability > SPEECH_PROBABILITY_THRESHOLD) {
+    if (speechProbability > this.timing.speechProbabilityThreshold) {
       this.currentSilenceFrameCount = 0;
     } else {
       this.currentSilenceFrameCount++;
@@ -200,7 +250,7 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     const silenceDurationMs =
       ((this.currentSilenceFrameCount * FRAME_SIZE) / SAMPLE_RATE) * 1000;
 
-    if (audioDurationMs >= MAX_AUDIO_DURATION_MS) {
+    if (audioDurationMs >= this.timing.maxAudioDurationMs) {
       logger.transcription.debug(
         `Transcribing ${this.options.displayName} buffer at max duration`,
         { audioDurationMs },
@@ -209,12 +259,17 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     }
 
     if (
-      audioDurationMs >= MIN_AUDIO_DURATION_MS &&
-      silenceDurationMs >= MIN_SILENCE_DURATION_MS
+      audioDurationMs >= this.timing.minAudioDurationMs &&
+      silenceDurationMs >= this.timing.minSilenceDurationMs
     ) {
       logger.transcription.debug(
         `Transcribing ${this.options.displayName} buffer after silence`,
-        { audioDurationMs, silenceDurationMs },
+        {
+          audioDurationMs,
+          silenceDurationMs,
+          minAudioDurationMs: this.timing.minAudioDurationMs,
+          minSilenceDurationMs: this.timing.minSilenceDurationMs,
+        },
       );
       return true;
     }
@@ -245,7 +300,8 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     const vadProbs = [...this.frameBufferSpeechProbabilities];
     this.reset();
 
-    const { audio: speechAudio } = extractSpeechFromVad(rawAudio, vadProbs);
+    const { audio: speechAudio, segments: speechSegments } =
+      extractSpeechFromVad(rawAudio, vadProbs);
     if (speechAudio.length === 0) {
       logger.transcription.debug(
         `Skipping ${this.options.displayName} transcription - no speech detected by VAD filter`,
@@ -330,13 +386,17 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
       });
     }
 
-    const text = getFilteredText(body);
+    const speechQuality = {
+      ...getSpeechQuality(vadProbs, speechSegments, speechAudio),
+      requestedLanguage: language,
+    };
+    const text = getFilteredText(body, speechQuality);
     logger.transcription.info(
       `${this.options.displayName} transcription completed`,
       {
         textLength: text.length,
         duration,
-        audioDurationMs: (speechAudio.length / SAMPLE_RATE) * 1000,
+        audioDurationMs: speechQuality.speechDurationMs,
       },
     );
 

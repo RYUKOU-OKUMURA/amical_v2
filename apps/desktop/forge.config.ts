@@ -183,6 +183,9 @@ const config: ForgeConfig = {
         join(whisperWrapperPath, "whisper.cpp"),
         join(whisperWrapperPath, "build"),
         join(whisperWrapperPath, ".cmake-js"),
+        // Runtime uses dist/native only; nested dev dependencies can contain
+        // workspace symlinks that invalidate macOS app bundle signing.
+        join(whisperWrapperPath, "node_modules"),
       ];
       for (const target of whisperPruneTargets) {
         if (existsSync(target)) {

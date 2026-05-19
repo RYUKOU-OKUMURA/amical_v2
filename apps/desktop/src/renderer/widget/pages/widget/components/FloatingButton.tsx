@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 const NUM_WAVEFORM_BARS = 6; // Fewer bars to make room for stop button
 const DEBOUNCE_DELAY = 100; // milliseconds
 const TOAST_INTERACTION_STATE_EVENT = "widget:toast-interaction-state";
+const PREVIEW_MAX_HEIGHT_PX = 116;
 
 type TranscriptionPreview = {
   text: string;
@@ -67,6 +68,7 @@ export const FloatingButton: React.FC = () => {
   const clickTimeRef = useRef<number | null>(null); // Track when user clicked
   const hasActiveToastRef = useRef(false);
   const previewRef = useRef<TranscriptionPreview | null>(null);
+  const previewTextElementRef = useRef<HTMLDivElement | null>(null);
   const previewClearTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // tRPC mutation to control widget mouse events
@@ -273,6 +275,14 @@ export const FloatingButton: React.FC = () => {
   const visibleTranscriptionPreview = shouldShowPreview
     ? transcriptionPreview
     : null;
+  useEffect(() => {
+    const previewElement = previewTextElementRef.current;
+    if (!previewElement || !visibleTranscriptionPreview) {
+      return;
+    }
+    previewElement.scrollTop = previewElement.scrollHeight;
+  }, [visibleTranscriptionPreview?.text, visibleTranscriptionPreview?.status]);
+
   const sizeClass = !isWidgetActive
     ? "h-[8px] w-[48px]"
     : showNotesAction
@@ -338,11 +348,10 @@ export const FloatingButton: React.FC = () => {
       {visibleTranscriptionPreview && (
         <div className="pointer-events-none max-w-full rounded-[12px] bg-black/80 px-4 py-3 text-[13px] leading-[1.45] text-white shadow-[0_12px_34px_rgba(0,0,0,0.38)] ring-1 ring-white/10 backdrop-blur-md">
           <div
-            className="max-h-[76px] overflow-hidden break-words"
+            ref={previewTextElementRef}
+            className="overflow-hidden break-words"
             style={{
-              display: "-webkit-box",
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: "vertical",
+              maxHeight: PREVIEW_MAX_HEIGHT_PX,
             }}
           >
             {visibleTranscriptionPreview.text}

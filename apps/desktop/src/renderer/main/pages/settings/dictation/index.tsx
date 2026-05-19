@@ -2,6 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import {
   LanguageSettings,
+  PunctuationSettings,
   MicrophoneSettings,
   FormattingSettings,
 } from "./components";
@@ -20,6 +21,8 @@ export default function DictationSettingsPage() {
       <Card>
         <CardContent className="space-y-4">
           <LanguageSettings />
+          <Separator />
+          <PunctuationSettings />
           <Separator />
           <MicrophoneSettings />
           <Separator />

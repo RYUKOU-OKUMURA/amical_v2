@@ -635,6 +635,11 @@
         "languagesLabel": "Idiomas",
         "languagesPlaceholder": "Seleccionar idiomas..."
       },
+      "punctuation": {
+        "label": "Añadir puntuación automáticamente",
+        "description": "Aplica ajustes de puntuación y legibilidad al texto pegado y a la vista previa del widget.",
+        "formattingNote": "Si el formateo con IA está activado, prevalece el resultado del formateo."
+      },
       "microphone": {
         "label": "Micrófono",
         "description": "Elige tu micrófono preferido.",

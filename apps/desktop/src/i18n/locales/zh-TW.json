@@ -635,6 +635,11 @@
         "languagesLabel": "語言",
         "languagesPlaceholder": "選擇語言..."
       },
+      "punctuation": {
+        "label": "自動加入標點",
+        "description": "對貼上文字與小工具預覽套用日文友善的標點與可讀性調整。",
+        "formattingNote": "若已啟用 AI 格式化，將以格式化結果為準。"
+      },
       "microphone": {
         "label": "麥克風",
         "description": "請選擇偏好的麥克風設備。",

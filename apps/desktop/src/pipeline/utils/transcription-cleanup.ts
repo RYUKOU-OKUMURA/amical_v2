@@ -96,6 +96,23 @@ export function shouldPreservePunctuatedTranscript(
   );
 }
 
+export function applyTranscriptionCleanupIfEnabled(
+  text: string,
+  options: {
+    enablePunctuation: boolean;
+    skipLightweightCleanup: boolean;
+    language?: string;
+  },
+): string {
+  if (options.skipLightweightCleanup || !options.enablePunctuation) {
+    return text;
+  }
+
+  return applyLightweightTranscriptionCleanup(text, {
+    language: options.language,
+  });
+}
+
 /**
  * Deterministic cleanup for final dictation text when LLM formatting is
  * disabled. This stays conservative, but adds a few Japanese punctuation hints

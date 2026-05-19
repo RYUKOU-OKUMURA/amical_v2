@@ -42,7 +42,7 @@ import {
 } from "../utils/model-selection";
 import { countWords } from "../utils/dictation-stats";
 import {
-  applyLightweightTranscriptionCleanup,
+  applyTranscriptionCleanupIfEnabled,
   shouldPreservePunctuatedTranscript,
 } from "../pipeline/utils/transcription-cleanup";
 
@@ -472,7 +472,21 @@ export class TranscriptionService {
       this.transcriptionMutex.release();
     }
 
-    return session.transcriptionResults.join("");
+    const raw = session?.transcriptionResults.join("") ?? "";
+    if (!session) {
+      return raw;
+    }
+
+    const transcriptionSettings =
+      await this.settingsService.getTranscriptionSettings();
+    return applyTranscriptionCleanupIfEnabled(raw, {
+      enablePunctuation: transcriptionSettings?.enablePunctuation !== false,
+      skipLightweightCleanup:
+        session.context.metadata.get("cloudFormattingEnabled") === true,
+      language:
+        session.detectedLanguage ??
+        session.context.sharedData.userPreferences?.language,
+    });
   }
 
   /**
@@ -1165,17 +1179,17 @@ export class TranscriptionService {
 
     const transcriptionSettings =
       await this.settingsService.getTranscriptionSettings();
-    if (!formattingUsed && transcriptionSettings?.enablePunctuation !== false) {
-      const cleanedText = applyLightweightTranscriptionCleanup(text, {
-        language: options.requestedLanguage,
+    const cleanedText = applyTranscriptionCleanupIfEnabled(text, {
+      enablePunctuation: transcriptionSettings?.enablePunctuation !== false,
+      skipLightweightCleanup: formattingUsed,
+      language: options.requestedLanguage,
+    });
+    if (cleanedText !== text) {
+      logger.transcription.info("Applied lightweight transcription cleanup", {
+        originalLength: text.length,
+        newLength: cleanedText.length,
       });
-      if (cleanedText !== text) {
-        logger.transcription.info("Applied lightweight transcription cleanup", {
-          originalLength: text.length,
-          newLength: cleanedText.length,
-        });
-        text = cleanedText;
-      }
+      text = cleanedText;
     }
 
     const textBeforeReplacements = text;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyLightweightTranscriptionCleanup,
+  applyTranscriptionCleanupIfEnabled,
   shouldPreservePunctuatedTranscript,
 } from "../../src/pipeline/utils/transcription-cleanup";
 
@@ -82,5 +83,37 @@ describe("transcription-cleanup", () => {
         "句読点がなかなか入らないね。音声入力中のプレビューでは表示される。",
       ),
     ).toBe(false);
+  });
+
+  it("skips cleanup when enablePunctuation is false", () => {
+    const raw = "句読点がなかなか入らないね";
+    expect(
+      applyTranscriptionCleanupIfEnabled(raw, {
+        enablePunctuation: false,
+        skipLightweightCleanup: false,
+        language: "ja",
+      }),
+    ).toBe(raw);
+  });
+
+  it("skips cleanup when lightweight cleanup is skipped for formatting", () => {
+    const raw = "句読点がなかなか入らないね";
+    expect(
+      applyTranscriptionCleanupIfEnabled(raw, {
+        enablePunctuation: true,
+        skipLightweightCleanup: true,
+        language: "ja",
+      }),
+    ).toBe(raw);
+  });
+
+  it("applies cleanup when punctuation is enabled and formatting is skipped", () => {
+    expect(
+      applyTranscriptionCleanupIfEnabled("もう少し早く表示されると嬉しい", {
+        enablePunctuation: true,
+        skipLightweightCleanup: false,
+        language: "ja",
+      }),
+    ).toBe("もう少し早く表示されると嬉しい。");
   });
 });

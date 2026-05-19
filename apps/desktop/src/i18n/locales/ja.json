@@ -635,6 +635,11 @@
         "languagesLabel": "言語",
         "languagesPlaceholder": "言語を選択..."
       },
+      "punctuation": {
+        "label": "句読点を自動で付ける",
+        "description": "貼り付けテキストとウィジェットのプレビューに、日本語向けの句読点と読みやすさの調整を適用します。",
+        "formattingNote": "AIフォーマットを有効にしている場合は、フォーマット結果が優先されます。"
+      },
       "microphone": {
         "label": "マイク",
         "description": "使用するマイクを選択してください。",

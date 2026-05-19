@@ -470,12 +470,12 @@ describe("AmicalCloudProvider", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("surfaces RESOURCE_EXHAUSTED as RATE_LIMIT_EXCEEDED without falling back", async () => {
+    it("surfaces RESOURCE_EXHAUSTED as QUOTA_EXCEEDED without falling back", async () => {
       const { flushPromise } = await driveGrpcThenSettleError(
         grpcMock.status.RESOURCE_EXHAUSTED,
       );
       await expect(flushPromise).rejects.toMatchObject({
-        errorCode: ErrorCodes.RATE_LIMIT_EXCEEDED,
+        errorCode: ErrorCodes.QUOTA_EXCEEDED,
       });
       expect(fetchMock).not.toHaveBeenCalled();
     });

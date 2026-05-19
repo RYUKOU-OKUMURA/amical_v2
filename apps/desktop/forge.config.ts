@@ -1,5 +1,8 @@
 import "dotenv/config";
-import type { ForgeConfig } from "@electron-forge/shared-types";
+import type {
+  ForgeConfig,
+  ForgePackagerOptions,
+} from "@electron-forge/shared-types";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
 import { MakerDMG } from "@electron-forge/maker-dmg";
@@ -30,6 +33,15 @@ import { execFileSync } from "node:child_process";
 import { Walker, DepType, type Module } from "flora-colossus";
 
 let nativeModuleDependenciesToPackage: string[] = [];
+
+type LegacyOsxSignOptions = Exclude<
+  ForgePackagerOptions["osxSign"],
+  boolean | undefined
+> & {
+  entitlements?: string;
+  entitlementsInherit?: string;
+  hardenedRuntime?: boolean;
+};
 
 export const EXTERNAL_DEPENDENCIES = [
   "electron-squirrel-startup",
@@ -495,7 +507,7 @@ const config: ForgeConfig = {
               // !still need to do any
               return null as any;
             },
-          },
+          } as LegacyOsxSignOptions,
           // Notarization for macOS
           ...(process.env.SKIP_NOTARIZATION === "true"
             ? {}

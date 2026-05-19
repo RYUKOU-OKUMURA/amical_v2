@@ -8,6 +8,7 @@ function containsJapaneseScript(text: string): boolean {
 
 function normalizeJapanesePunctuation(text: string): string {
   return text
+    .replace(/[口苦駆]読点/g, "句読点")
     .replace(/([。！？!?])\.+$/u, "$1")
     .replace(/([。！？!?])。+$/u, "$1")
     .replace(new RegExp(`(${JAPANESE_CHAR_PATTERN.source})\\?`, "gu"), "$1？")

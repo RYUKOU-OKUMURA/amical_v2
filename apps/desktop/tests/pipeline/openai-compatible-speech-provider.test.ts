@@ -27,6 +27,12 @@ function audioFrame(fill = 0.1): Float32Array {
   return frame;
 }
 
+function audioFrames(count: number, fill = 0.1): Float32Array {
+  const audio = new Float32Array(FRAME_SIZE * count);
+  audio.fill(fill);
+  return audio;
+}
+
 function baseContext(): TranscribeContext {
   return {
     sessionId: "session-1",
@@ -141,5 +147,27 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
 
     expect(result).toEqual({ text: "こんにちは" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports a full-audio final pass without feeding prior transcript as prompt", async () => {
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+
+    const result = await provider.transcribeFullAudio({
+      audioData: audioFrames(50),
+      speechProbabilities: new Array(50).fill(1),
+      context: {
+        ...baseContext(),
+        aggregatedTranscription: "これは既にチャンクで認識された文章です",
+      },
+    });
+
+    expect(result).toEqual({ text: "こんにちは" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    expect(formData.get("prompt")).toBeNull();
   });
 });

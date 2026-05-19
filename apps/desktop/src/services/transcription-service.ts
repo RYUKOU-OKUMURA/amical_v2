@@ -64,6 +64,12 @@ interface CompletedTranscriptionPersistenceJob {
   formattingStyle?: string;
 }
 
+const AUDIO_FRAME_SIZE = 512;
+const AUDIO_SAMPLE_RATE = 16000;
+const GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS = 12_000;
+const GROQ_LONG_FORM_FINAL_PASS_MIN_CHUNKS = 3;
+const MIN_ACCEPTABLE_FINAL_PASS_LENGTH_RATIO = 0.45;
+
 /**
  * Service for audio transcription and optional formatting
  */
@@ -518,6 +524,7 @@ export class TranscriptionService {
         formatterConfig?.enabled &&
         isAmicalCloudSelectionValue(formatterConfig.modelId);
       let usedCloudProvider = false;
+      let providerForFinalPass: TranscriptionProvider | null = null;
 
       // Flush provider to get any remaining buffered audio
       await this.transcriptionMutex.acquire();
@@ -531,6 +538,7 @@ export class TranscriptionService {
         const aggregatedTranscription = session.transcriptionResults.join("");
 
         const provider = await this.selectProvider();
+        providerForFinalPass = provider;
         usedCloudProvider = provider.name === "amical-cloud";
         const finalResult = await provider.flush({
           sessionId,
@@ -563,6 +571,15 @@ export class TranscriptionService {
       }
 
       let rawTranscription = session.transcriptionResults.join("");
+      const longFormFinalPassText = await this.runGroqLongFormFinalPass({
+        provider: providerForFinalPass,
+        session,
+        audioFilePath,
+        rawTranscription,
+      });
+      if (longFormFinalPassText) {
+        rawTranscription = longFormFinalPassText;
+      }
 
       // Apply simple pre-formatting for local models (handles Whisper leading space artifact)
       if (!usedCloudProvider) {
@@ -683,6 +700,123 @@ export class TranscriptionService {
 
       // Re-throw for RecordingManager to handle notifications
       throw error;
+    }
+  }
+
+  private shouldRunGroqLongFormFinalPass(options: {
+    provider: TranscriptionProvider | null;
+    audioFilePath?: string;
+    session: StreamingSession;
+  }): boolean {
+    const { provider, audioFilePath, session } = options;
+    if (
+      provider?.name !== "groq" ||
+      typeof provider.transcribeFullAudio !== "function" ||
+      !audioFilePath
+    ) {
+      return false;
+    }
+
+    const recordingDurationMs =
+      session.recordingStartedAt && session.recordingStoppedAt
+        ? session.recordingStoppedAt - session.recordingStartedAt
+        : undefined;
+
+    return (
+      session.transcriptionResults.length >=
+        GROQ_LONG_FORM_FINAL_PASS_MIN_CHUNKS ||
+      (typeof recordingDurationMs === "number" &&
+        recordingDurationMs >= GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS)
+    );
+  }
+
+  private async runGroqLongFormFinalPass(options: {
+    provider: TranscriptionProvider | null;
+    session: StreamingSession;
+    audioFilePath?: string;
+    rawTranscription: string;
+  }): Promise<string | null> {
+    const { provider, session, audioFilePath, rawTranscription } = options;
+    if (
+      !this.shouldRunGroqLongFormFinalPass({
+        provider,
+        audioFilePath,
+        session,
+      }) ||
+      !provider?.transcribeFullAudio ||
+      !audioFilePath
+    ) {
+      return null;
+    }
+
+    try {
+      const audioData = await this.readWavAsFloat32(audioFilePath);
+      const audioDurationMs = (audioData.length / AUDIO_SAMPLE_RATE) * 1000;
+      if (
+        session.transcriptionResults.length <
+          GROQ_LONG_FORM_FINAL_PASS_MIN_CHUNKS &&
+        audioDurationMs < GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS
+      ) {
+        return null;
+      }
+
+      const speechProbabilities =
+        await this.computeVadProbabilitiesForAudio(audioData);
+      const result = await provider.transcribeFullAudio({
+        audioData,
+        speechProbabilities,
+        context: {
+          sessionId: session.context.sessionId,
+          vocabulary: session.context.sharedData.vocabulary,
+          accessibilityContext: session.context.sharedData.accessibilityContext,
+          language: session.context.sharedData.userPreferences?.language,
+          formattingEnabled: false,
+        },
+      });
+
+      const finalPassText = result.text.trim();
+      if (!finalPassText) {
+        logger.transcription.info(
+          "Groq long-form final pass returned empty text; keeping chunk transcript",
+          { sessionId: session.context.sessionId },
+        );
+        return null;
+      }
+
+      const rawLength = rawTranscription.trim().length;
+      if (
+        rawLength >= 80 &&
+        finalPassText.length <
+          rawLength * MIN_ACCEPTABLE_FINAL_PASS_LENGTH_RATIO
+      ) {
+        logger.transcription.warn(
+          "Groq long-form final pass was much shorter than chunk transcript; keeping chunk transcript",
+          {
+            sessionId: session.context.sessionId,
+            rawLength,
+            finalPassLength: finalPassText.length,
+          },
+        );
+        return null;
+      }
+
+      logger.transcription.info("Applied Groq long-form final pass", {
+        sessionId: session.context.sessionId,
+        audioDurationMs,
+        chunkCount: session.transcriptionResults.length,
+        originalLength: rawLength,
+        finalPassLength: finalPassText.length,
+      });
+      return finalPassText;
+    } catch (error) {
+      logger.transcription.warn(
+        "Groq long-form final pass failed; keeping chunk transcript",
+        {
+          sessionId: session.context.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return null;
     }
   }
 
@@ -1071,6 +1205,42 @@ export class TranscriptionService {
       float32Array[i] = int16Array[i] / 32768;
     }
     return float32Array;
+  }
+
+  private splitAudioFrames(audioData: Float32Array): Float32Array[] {
+    const frames: Float32Array[] = [];
+    for (
+      let offset = 0;
+      offset < audioData.length;
+      offset += AUDIO_FRAME_SIZE
+    ) {
+      frames.push(
+        audioData.subarray(
+          offset,
+          Math.min(offset + AUDIO_FRAME_SIZE, audioData.length),
+        ),
+      );
+    }
+    return frames;
+  }
+
+  private async computeVadProbabilitiesForAudio(
+    audioData: Float32Array,
+  ): Promise<number[]> {
+    const frames = this.splitAudioFrames(audioData);
+    if (!this.vadService) {
+      return new Array(frames.length).fill(1);
+    }
+
+    const vadProbs: number[] = [];
+    await this.vadMutex.runExclusive(async () => {
+      this.vadService!.reset();
+      for (const frame of frames) {
+        const result = await this.vadService!.processAudioFrame(frame);
+        vadProbs.push(result.probability);
+      }
+    });
+    return vadProbs;
   }
 
   /**

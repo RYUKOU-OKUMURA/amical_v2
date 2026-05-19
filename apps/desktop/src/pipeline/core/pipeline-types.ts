@@ -25,6 +25,12 @@ export interface TranscribeParams {
   context: TranscribeContext;
 }
 
+export interface FullAudioTranscribeParams {
+  audioData: Float32Array;
+  speechProbabilities?: number[];
+  context: TranscribeContext;
+}
+
 export interface TranscriptionOutput {
   text: string;
   detectedLanguage?: string;
@@ -47,6 +53,9 @@ export interface TranscriptionProvider {
   readonly name: string;
   transcribe(params: TranscribeParams): Promise<TranscriptionOutput>;
   flush(context: TranscribeContext): Promise<TranscriptionOutput>;
+  transcribeFullAudio?(
+    params: FullAudioTranscribeParams,
+  ): Promise<TranscriptionOutput>;
   reset(): void; // Clear internal buffers without transcribing
   /**
    * Prepare the provider for upcoming work. Called at app boot and on each

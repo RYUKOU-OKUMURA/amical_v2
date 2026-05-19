@@ -37,4 +37,18 @@ describe("transcription-cleanup", () => {
       }),
     ).toBe("OpenAI API test");
   });
+
+  it("normalizes common dictation mistakes for Japanese punctuation wording", () => {
+    expect(
+      applyLightweightTranscriptionCleanup("駆読点が入力される", {
+        language: "ja",
+      }),
+    ).toBe("句読点が入力される。");
+
+    expect(
+      applyLightweightTranscriptionCleanup("口読点とか苦読点", {
+        language: "ja",
+      }),
+    ).toBe("句読点とか句読点。");
+  });
 });

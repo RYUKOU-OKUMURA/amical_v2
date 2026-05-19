@@ -3,6 +3,7 @@ import {
   TranscribeParams,
   TranscribeContext,
   TranscriptionOutput,
+  FullAudioTranscribeParams,
 } from "../../core/pipeline-types";
 import { logger } from "../../../main/logger";
 import type { SettingsService } from "../../../services/settings-service";
@@ -178,6 +179,32 @@ function getSpeechQuality(
   };
 }
 
+function normalizeSpeechProbabilities(
+  audioData: Float32Array,
+  speechProbabilities?: number[],
+): number[] {
+  const frameCount = Math.ceil(audioData.length / FRAME_SIZE);
+  if (frameCount === 0) {
+    return [];
+  }
+
+  if (!speechProbabilities || speechProbabilities.length === 0) {
+    return new Array(frameCount).fill(1);
+  }
+
+  if (speechProbabilities.length === frameCount) {
+    return [...speechProbabilities];
+  }
+
+  const normalized = speechProbabilities.slice(0, frameCount);
+  const fillValue = normalized[normalized.length - 1] ?? 1;
+  while (normalized.length < frameCount) {
+    normalized.push(fillValue);
+  }
+
+  return normalized;
+}
+
 export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
   readonly name: string;
 
@@ -236,6 +263,24 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     }
 
     return this.doTranscription(context);
+  }
+
+  async transcribeFullAudio(
+    params: FullAudioTranscribeParams,
+  ): Promise<TranscriptionOutput> {
+    return this.transcribeAudio(
+      params.audioData,
+      normalizeSpeechProbabilities(
+        params.audioData,
+        params.speechProbabilities,
+      ),
+      {
+        ...params.context,
+        aggregatedTranscription: undefined,
+        previousChunk: undefined,
+      },
+      "final-pass",
+    );
   }
 
   reset(): void {
@@ -300,6 +345,15 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     const vadProbs = [...this.frameBufferSpeechProbabilities];
     this.reset();
 
+    return this.transcribeAudio(rawAudio, vadProbs, context, "chunk");
+  }
+
+  private async transcribeAudio(
+    rawAudio: Float32Array,
+    vadProbs: number[],
+    context: TranscribeContext,
+    mode: "chunk" | "final-pass",
+  ): Promise<TranscriptionOutput> {
     const { audio: speechAudio, segments: speechSegments } =
       extractSpeechFromVad(rawAudio, vadProbs);
     if (speechAudio.length === 0) {
@@ -397,6 +451,7 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
         textLength: text.length,
         duration,
         audioDurationMs: speechQuality.speechDurationMs,
+        mode,
       },
     );
 

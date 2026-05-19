@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useAudioCapture } from "./useAudioCapture";
 import { api } from "@/trpc/react";
 import type { RecordingState } from "@/types/recording";
@@ -24,6 +24,7 @@ export const useRecording = (): UseRecordingOutput => {
 
   const startRecordingMutation = api.recording.signalStart.useMutation();
   const stopRecordingMutation = api.recording.signalStop.useMutation();
+  const audioSendQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   // Subscribe to recording state updates via tRPC
   api.recording.stateUpdates.useSubscription(undefined, {
@@ -45,14 +46,21 @@ export const useRecording = (): UseRecordingOutput => {
       // Convert ArrayBuffer to Float32Array
       const float32Array = new Float32Array(arrayBuffer);
 
-      // Send frame directly to main process
-      // TODO: We need to update the IPC to include speech detection info
-      await window.electronAPI.sendAudioChunk(float32Array, isFinalChunk);
-      console.debug(`Sent audio frame`, {
-        samples: float32Array.length,
-        speechProbability: speechProbability.toFixed(3),
-        isFinal: isFinalChunk,
-      });
+      const sendOperation = audioSendQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          // Send frame directly to main process, preserving capture order.
+          // TODO: We need to update the IPC to include speech detection info
+          await window.electronAPI.sendAudioChunk(float32Array, isFinalChunk);
+          console.debug(`Sent audio frame`, {
+            samples: float32Array.length,
+            speechProbability: speechProbability.toFixed(3),
+            isFinal: isFinalChunk,
+          });
+        });
+
+      audioSendQueueRef.current = sendOperation.catch(() => undefined);
+      await sendOperation;
 
       if (isFinalChunk) {
         console.log("Final frame sent to main process");

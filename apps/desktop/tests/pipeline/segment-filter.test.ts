@@ -55,6 +55,22 @@ describe("segment-filter", () => {
     ).toBe(false);
   });
 
+  it("drops standalone goodbye only when confidence is weak", () => {
+    expect(
+      shouldDropSegment({
+        text: "さようなら。",
+        noSpeechProb: 0.35,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldDropSegment({
+        text: "さようなら。",
+        noSpeechProb: 0.05,
+      }),
+    ).toBe(false);
+  });
+
   it("drops standalone Japanese thanks only when whole-response speech quality is weak", () => {
     expect(
       shouldDropCompleteTranscription("ありがとうございます。", {
@@ -77,6 +93,32 @@ describe("segment-filter", () => {
         speechDurationMs: 700,
         averageSpeechProbability: 0.7,
         maxSpeechProbability: 0.9,
+      }),
+    ).toBe(false);
+  });
+
+  it("drops standalone goodbye only for short weak whole-response speech", () => {
+    expect(
+      shouldDropCompleteTranscription("さようなら。", {
+        speechDurationMs: 1200,
+        averageSpeechProbability: 0.2,
+        maxSpeechProbability: 0.4,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldDropCompleteTranscription("さようなら。", {
+        speechDurationMs: 1200,
+        averageSpeechProbability: 0.75,
+        maxSpeechProbability: 0.95,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldDropCompleteTranscription("さようなら。", {
+        speechDurationMs: 3200,
+        averageSpeechProbability: 0.2,
+        maxSpeechProbability: 0.4,
       }),
     ).toBe(false);
   });

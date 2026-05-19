@@ -16,6 +16,7 @@ const LOW_CONFIDENCE_STANDALONE_PATTERNS = [
   "どうもありがとうございます",
   "どうもありがとうございました",
 ];
+const LOW_CONFIDENCE_CLOSING_PATTERNS = ["さようなら", "さよなら"];
 const MIXED_LANGUAGE_HALLUCINATION_PATTERNS = [
   /discordharma/i,
   /放弱.*atar.*召喚/i,
@@ -27,6 +28,7 @@ const LATIN_LETTER_PATTERN = /[a-z\u00c0-\u024f]/gi;
 const LOW_CONFIDENCE_MAX_AVERAGE_SPEECH_PROBABILITY = 0.35;
 const LOW_CONFIDENCE_MAX_PEAK_SPEECH_PROBABILITY = 0.55;
 const LOW_CONFIDENCE_MAX_SPEECH_DURATION_MS = 900;
+const LOW_CONFIDENCE_CLOSING_MAX_SPEECH_DURATION_MS = 2500;
 
 /**
  * Normalizes text for hallucination lookup:
@@ -58,6 +60,10 @@ function isMixedLanguageHallucinationText(text: string): boolean {
 
 function isLowConfidenceStandaloneHallucinationText(text: string): boolean {
   return matchesCompactPattern(text, LOW_CONFIDENCE_STANDALONE_PATTERNS);
+}
+
+function isLowConfidenceStandaloneClosingText(text: string): boolean {
+  return matchesCompactPattern(text, LOW_CONFIDENCE_CLOSING_PATTERNS);
 }
 
 function isWeakSpeechQuality(quality: CompleteTranscriptionQuality): boolean {
@@ -165,7 +171,8 @@ export function shouldDropSegment(segment: Segment): boolean {
   if (
     segment.noSpeechProb !== undefined &&
     segment.noSpeechProb > LOW_CONFIDENCE_STANDALONE_THRESHOLD &&
-    isLowConfidenceStandaloneHallucinationText(segment.text)
+    (isLowConfidenceStandaloneHallucinationText(segment.text) ||
+      isLowConfidenceStandaloneClosingText(segment.text))
   ) {
     return true;
   }
@@ -189,6 +196,26 @@ export function shouldDropCompleteTranscription(
 
   if (isJapaneseRequestedForeignHallucinationText(text, quality)) {
     return true;
+  }
+
+  if (isLowConfidenceStandaloneClosingText(text)) {
+    const { speechDurationMs, averageSpeechProbability, maxSpeechProbability } =
+      quality;
+    const hasSpeechProbabilityMetrics =
+      typeof averageSpeechProbability === "number" &&
+      typeof maxSpeechProbability === "number";
+    const hasShortSpeech =
+      typeof speechDurationMs === "number" &&
+      speechDurationMs <= LOW_CONFIDENCE_CLOSING_MAX_SPEECH_DURATION_MS;
+
+    if (hasSpeechProbabilityMetrics) {
+      return hasShortSpeech && isWeakSpeechQuality(quality);
+    }
+
+    return (
+      typeof speechDurationMs === "number" &&
+      speechDurationMs <= LOW_CONFIDENCE_MAX_SPEECH_DURATION_MS
+    );
   }
 
   if (!isLowConfidenceStandaloneHallucinationText(text)) {

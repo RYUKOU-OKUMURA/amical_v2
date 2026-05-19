@@ -109,6 +109,20 @@ To add a new patch, drop a `.patch` file in `patches/` (they're applied in
 alphabetical order). If a whisper.cpp version bump breaks a patch, the build will
 fail, prompting you to check whether the fix was merged upstream.
 
+## whisper.cpp submodule (運用)
+
+- `whisper.cpp` is a git submodule (see repo-root `.gitmodules`, pinned in the parent commit).
+- `pnpm install` runs `preinstall` → applies `patches/*.patch` inside the submodule. That leaves a dirty working tree in `whisper.cpp`; this is expected.
+- The parent repo sets `ignore = dirty` in `.gitmodules` so `git status` does not flag routine patch application.
+- Do **not** delete `whisper.cpp` or commit edits inside it unless you are bumping the submodule pointer upstream.
+- Reset + re-apply patches:
+
+```bash
+git submodule update --init packages/whisper-wrapper/whisper.cpp
+cd packages/whisper-wrapper/whisper.cpp && git checkout -- . && cd ..
+pnpm --filter @amical/whisper-wrapper run preinstall
+```
+
 ## Local expectations
 
 - `whisper.cpp` is tracked as a submodule under `packages/whisper-wrapper/`.

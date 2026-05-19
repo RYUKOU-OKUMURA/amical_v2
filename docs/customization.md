@@ -163,6 +163,18 @@ Aqua は OpenAI 互換の文字起こしフローを使用し、デフォルト�
 git submodule update --init --recursive packages/whisper-wrapper/whisper.cpp
 ```
 
+### whisper.cpp サブモジュール
+
+- `packages/whisper-wrapper/whisper.cpp` は upstream [whisper.cpp](https://github.com/ggerganov/whisper.cpp) のサブモジュール（ローカル Whisper 用）。
+- `pnpm install` 時に `patches/` が自動適用され、サブモジュール内の `src/whisper.cpp` が変更されるのは正常。親リポジトリは `.gitmodules` の `ignore = dirty` でこの差分を `git status` から除外している。
+- **削除しない**（削除すると `pnpm install` のネイティブビルドが失敗し、ローカル Whisper が使えなくなる）。
+- パッチをやり直す場合:
+
+```bash
+cd packages/whisper-wrapper/whisper.cpp && git checkout -- . && cd ../../..
+pnpm --filter @amical/whisper-wrapper run preinstall
+```
+
 依存関係のインストールとローカルネイティブ Whisper ラッパーのビルド:
 
 ```bash

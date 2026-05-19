@@ -1,5 +1,4 @@
 import Changelog from "@/components/ui/changelog";
-import { SubscriptionForm } from "@/components/ui/subscription-form";
 
 export const metadata = {
   title: "Changelog",

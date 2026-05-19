@@ -30,11 +30,7 @@ const App: React.FC = () => {
       router.navigate({ to: route });
     };
 
-    window.electronAPI?.on?.("navigate", handleNavigate);
-
-    return () => {
-      window.electronAPI?.off?.("navigate", handleNavigate);
-    };
+    return window.electronAPI.onNavigate(handleNavigate);
   }, []);
 
   return <RouterProvider router={router} />;

@@ -125,10 +125,7 @@ export function NotesWindowPanel({
       handleOpenRequest(noteId);
     };
 
-    window.electronAPI.on("notes-window:open-requested", handler);
-    return () => {
-      window.electronAPI.off("notes-window:open-requested", handler);
-    };
+    return window.electronAPI.onNotesWindowOpenRequested(handler);
   }, [handleOpenRequest]);
 
   useEffect(() => {

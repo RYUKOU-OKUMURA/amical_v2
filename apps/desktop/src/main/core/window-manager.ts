@@ -4,13 +4,13 @@ import {
   systemPreferences,
   app,
   nativeTheme,
-  shell,
 } from "electron";
 import path from "node:path";
 import { logger } from "../logger";
 import type { SettingsService } from "../../services/settings-service";
 import type { createIPCHandler } from "electron-trpc-experimental/main";
 import { NotesWindowController } from "./windows/notes-window-controller";
+import { isAllowedExternalUrl, openExternalUrl } from "../utils/external-url";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -28,27 +28,51 @@ export class WindowManager {
   private widgetDisplayId: number | null = null;
   private cursorPollingInterval: NodeJS.Timeout | null = null;
   private themeListenerSetup: boolean = false;
+  private readonly handleDisplayAdded = () =>
+    this.handleDisplayChange("display-added");
+  private readonly handleDisplayRemoved = () =>
+    this.handleDisplayChange("display-removed");
+  private readonly handleDisplayMetricsChanged = () =>
+    this.handleDisplayChange("display-metrics-changed");
+  private readonly handleBrowserWindowFocus = (
+    _event: Electron.Event,
+    window: BrowserWindow,
+  ) => {
+    if (!window || window.isDestroyed()) return;
+
+    // Get the display where the focused window is located
+    const focusedWindowDisplay = screen.getDisplayMatching(window.getBounds());
+
+    if (focusedWindowDisplay.id === this.widgetDisplayId) {
+      return;
+    }
+
+    // If the focused window is on a different display than our current one
+    logger.main.info("Active display changed due to window focus", {
+      previousDisplayId: this.widgetDisplayId,
+      newDisplayId: focusedWindowDisplay.id,
+    });
+
+    this.widgetDisplayId = focusedWindowDisplay.id;
+
+    // Update widget window bounds to new display
+    if (this.widgetWindow && !this.widgetWindow.isDestroyed()) {
+      this.widgetWindow.setBounds(
+        this.getWidgetDefaultBounds(focusedWindowDisplay.workArea),
+      );
+    }
+  };
 
   // On Windows, inset from all edges to allow taskbar auto-hide detection
   private readonly widgetEdgeInset = process.platform === "win32" ? 4 : 0;
 
   /**
-   * Get the correct traffic light position based on macOS version.
-   * macOS Tahoe (26+) has larger, redesigned traffic light buttons as part of
-   * the "Liquid Glass" design language that require a different y-offset.
-   * Electron does not handle this automatically - apps must detect OS version.
-   * See: https://github.com/microsoft/vscode/pull/280593
+   * Get the traffic light position used by the frameless macOS main window.
    */
   private getTrafficLightPosition(): { x: number; y: number } {
     if (process.platform !== "darwin") {
       return { x: 20, y: 16 }; // Not used on non-macOS, but return default
     }
-
-    // process.getSystemVersion() returns marketing version (e.g., "26.0.0")
-    // vs os.release() which returns Darwin kernel version (e.g., "25.1.0")
-    const systemVersion = process.getSystemVersion();
-    const majorVersion = parseInt(systemVersion.split(".")[0], 10);
-    const isTahoeOrLater = majorVersion >= 26;
 
     return { x: 16, y: 16 };
   }
@@ -250,28 +274,23 @@ export class WindowManager {
       },
     });
 
-    const shouldOpenExternally = (url: string) => {
-      try {
-        const parsed = new URL(url);
-        return ["http:", "https:", "mailto:", "tel:"].includes(parsed.protocol);
-      } catch {
-        return false;
-      }
-    };
-
     // Open external links in the default browser
     this.mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-      if (shouldOpenExternally(url)) {
-        shell.openExternal(url);
+      if (isAllowedExternalUrl(url)) {
+        void openExternalUrl(url).catch((error) => {
+          logger.main.warn("Failed to open external URL", { url, error });
+        });
       }
       return { action: "deny" };
     });
 
     // Intercept navigation to external URLs
     this.mainWindow.webContents.on("will-navigate", (event, url) => {
-      if (shouldOpenExternally(url)) {
+      if (isAllowedExternalUrl(url)) {
         event.preventDefault();
-        shell.openExternal(url);
+        void openExternalUrl(url).catch((error) => {
+          logger.main.warn("Failed to open external URL", { url, error });
+        });
       }
     });
 
@@ -496,13 +515,9 @@ export class WindowManager {
 
   private setupDisplayChangeNotifications(): void {
     // Set up comprehensive display event listeners
-    screen.on("display-added", () => this.handleDisplayChange("display-added"));
-    screen.on("display-removed", () =>
-      this.handleDisplayChange("display-removed"),
-    );
-    screen.on("display-metrics-changed", () =>
-      this.handleDisplayChange("display-metrics-changed"),
-    );
+    screen.on("display-added", this.handleDisplayAdded);
+    screen.on("display-removed", this.handleDisplayRemoved);
+    screen.on("display-metrics-changed", this.handleDisplayMetricsChanged);
 
     // Set up focus-based display detection
     this.setupFocusBasedDisplayDetection();
@@ -533,33 +548,7 @@ export class WindowManager {
 
   private setupFocusBasedDisplayDetection(): void {
     // Listen for any window focus events to detect active display changes
-    app.on("browser-window-focus", (_event, window) => {
-      if (!window || window.isDestroyed()) return;
-
-      // Get the display where the focused window is located
-      const focusedWindowDisplay = screen.getDisplayMatching(
-        window.getBounds(),
-      );
-
-      if (focusedWindowDisplay.id === this.widgetDisplayId) {
-        return;
-      }
-
-      // If the focused window is on a different display than our current one
-      logger.main.info("Active display changed due to window focus", {
-        previousDisplayId: this.widgetDisplayId,
-        newDisplayId: focusedWindowDisplay.id,
-      });
-
-      this.widgetDisplayId = focusedWindowDisplay.id;
-
-      // Update widget window bounds to new display
-      if (this.widgetWindow && !this.widgetWindow.isDestroyed()) {
-        this.widgetWindow.setBounds(
-          this.getWidgetDefaultBounds(focusedWindowDisplay.workArea),
-        );
-      }
-    });
+    app.on("browser-window-focus", this.handleBrowserWindowFocus);
   }
 
   private startCursorPolling(): void {
@@ -699,12 +688,12 @@ export class WindowManager {
     }
 
     // Remove display event listeners
-    screen.removeAllListeners("display-added");
-    screen.removeAllListeners("display-removed");
-    screen.removeAllListeners("display-metrics-changed");
+    screen.off("display-added", this.handleDisplayAdded);
+    screen.off("display-removed", this.handleDisplayRemoved);
+    screen.off("display-metrics-changed", this.handleDisplayMetricsChanged);
 
     // Remove focus event listener
-    app.removeAllListeners("browser-window-focus");
+    app.off("browser-window-focus", this.handleBrowserWindowFocus);
 
     logger.main.info("Cleaned up display and focus event listeners");
   }

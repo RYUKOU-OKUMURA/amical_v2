@@ -7,6 +7,7 @@ import {
   S3Client,
   ListObjectsV2Command,
   GetObjectCommand,
+  type S3ClientConfig,
 } from "@aws-sdk/client-s3";
 import { createWriteStream, promises as fs } from "fs";
 import { pipeline } from "stream/promises";
@@ -41,7 +42,7 @@ const HAS_AWS_CREDENTIALS = !!(
 );
 
 // S3 client configuration
-const s3ClientConfig: any = {
+const s3ClientConfig: S3ClientConfig = {
   endpoint: ENDPOINT,
   region: process.env.AWS_REGION || "us-east-1", // Required but may not matter for Wasabi
   forcePathStyle: true, // Required for Wasabi
@@ -79,7 +80,7 @@ async function ensureDirectoryExists(directory: string): Promise<void> {
   try {
     await fs.access(directory);
     console.log(`Directory exists: ${directory}`);
-  } catch (error) {
+  } catch {
     try {
       await fs.mkdir(directory, { recursive: true });
       console.log(`Created directory: ${directory}`);
@@ -178,8 +179,7 @@ async function downloadFile(
 
     const writeStream = createWriteStream(destinationPath);
 
-    // @ts-ignore - TypeScript doesn't recognize Body as a stream, but it is
-    await pipeline(response.Body, writeStream);
+    await pipeline(response.Body as NodeJS.ReadableStream, writeStream);
 
     console.log(`Downloaded: ${key} to ${destinationPath}`);
   } catch (error) {
@@ -242,7 +242,7 @@ async function fetchBlogContent(): Promise<void> {
         try {
           await downloadFile(key, destinationPath);
           downloadedCount++;
-        } catch (error) {
+        } catch {
           console.error(
             `Failed to download ${key}. Continuing with next file.`,
           );
@@ -274,7 +274,7 @@ async function fetchBlogContent(): Promise<void> {
         try {
           await downloadFile(key, destinationPath);
           downloadedCount++;
-        } catch (error) {
+        } catch {
           console.error(
             `Failed to download ${key}. Continuing with next file.`,
           );

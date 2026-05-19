@@ -2,6 +2,7 @@ import { vi } from "vitest";
 import { EventEmitter } from "events";
 import path from "node:path";
 import os from "node:os";
+import { randomUUID } from "node:crypto";
 
 // Create a fake BrowserWindow class
 class FakeBrowserWindow extends EventEmitter {
@@ -183,7 +184,10 @@ class FakeBrowserWindow extends EventEmitter {
 }
 
 // Create test directories
-const testUserDataPath = path.join(os.tmpdir(), "amical-test-" + Date.now());
+const testUserDataPath = path.join(
+  os.tmpdir(),
+  `amical-test-${process.pid}-${process.env.VITEST_WORKER_ID ?? "0"}-${randomUUID()}`,
+);
 const testAppPath = process.cwd();
 
 // Mock app object

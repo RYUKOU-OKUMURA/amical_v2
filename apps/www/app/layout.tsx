@@ -3,7 +3,6 @@ import { RootProvider } from "fumadocs-ui/provider";
 import { Inter } from "next/font/google";
 import type { ReactNode } from "react";
 import PlausibleProvider from "next-plausible";
-import { GoogleTagManager } from "@next/third-parties/google";
 import { createMetadata } from "@/lib/metadata";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 

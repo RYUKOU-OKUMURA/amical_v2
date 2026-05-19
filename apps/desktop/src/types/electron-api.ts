@@ -21,20 +21,22 @@ export interface ElectronAPI {
   // Model Management API (moved to tRPC)
   // Transcription Database API (moved to tRPC)
 
-  on: (channel: string, callback: (...args: any[]) => void) => void;
-  off: (channel: string, callback: (...args: any[]) => void) => void;
+  onNotesWindowOpenRequested: (
+    callback: (noteId?: number) => void,
+  ) => (() => void) | void;
+  onNavigate: (callback: (route: string) => void) => (() => void) | void;
 
   // Logging API for renderer process
   log: {
-    info: (...args: any[]) => void;
-    warn: (...args: any[]) => void;
-    error: (...args: any[]) => void;
-    debug: (...args: any[]) => void;
+    info: (...args: unknown[]) => void;
+    warn: (...args: unknown[]) => void;
+    error: (...args: unknown[]) => void;
+    debug: (...args: unknown[]) => void;
     scope: (name: string) => {
-      info: (...args: any[]) => void;
-      warn: (...args: any[]) => void;
-      error: (...args: any[]) => void;
-      debug: (...args: any[]) => void;
+      info: (...args: unknown[]) => void;
+      warn: (...args: unknown[]) => void;
+      error: (...args: unknown[]) => void;
+      debug: (...args: unknown[]) => void;
     };
   };
 

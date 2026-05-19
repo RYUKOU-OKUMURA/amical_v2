@@ -1,7 +1,6 @@
 import fs from "fs";
 import { globby } from "globby";
 import prettier from "prettier";
-import path from "path";
 
 async function generate() {
   const prettierConfig = await prettier.resolveConfig("./.prettierrc");

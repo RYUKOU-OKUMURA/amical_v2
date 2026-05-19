@@ -63,6 +63,14 @@ type FetchedModel = Pick<
 const PROVIDER_REQUEST_TIMEOUT_MS = 10_000;
 const AQUA_DEFAULT_BASE_URL = "https://api.aquavoice.com/api/v1";
 
+type ProviderErrorPayload = {
+  error?: {
+    message?: unknown;
+    type?: unknown;
+  };
+  message?: unknown;
+};
+
 function getProviderIdentity(provider: RemoteProvider) {
   const providerType = getRemoteProviderType(provider);
 
@@ -77,11 +85,9 @@ async function extractProviderErrorMessage(
   response: Response,
 ): Promise<string> {
   try {
-    const errorData = await response.json();
+    const errorData = (await response.json()) as ProviderErrorPayload;
     const providerMessage =
-      (errorData as any)?.error?.message ||
-      (errorData as any)?.error?.type ||
-      (errorData as any)?.message;
+      errorData.error?.message ?? errorData.error?.type ?? errorData.message;
 
     if (typeof providerMessage === "string" && providerMessage.length > 0) {
       return providerMessage;

@@ -15,7 +15,6 @@ import {
   RpcRequestSchema,
   RpcRequest,
   RpcResponseSchema,
-  RpcResponse,
   HelperEventSchema,
   HelperEvent,
   GetAccessibilityTreeDetailsParams,

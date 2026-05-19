@@ -1,4 +1,4 @@
-import { eq, desc, asc, like, and, isNull } from "drizzle-orm";
+import { eq, desc, asc, like, and } from "drizzle-orm";
 import { db } from "./index";
 import {
   notes,
@@ -43,7 +43,7 @@ export async function getNotes(
   } = options;
 
   // Build query
-  let query = db.select().from(notes);
+  let query = db.select().from(notes).$dynamic();
 
   // Apply filters
   const conditions = [];
@@ -52,16 +52,16 @@ export async function getNotes(
   }
 
   if (conditions.length > 0) {
-    query = query.where(and(...conditions)) as any;
+    query = query.where(and(...conditions));
   }
 
   // Apply sorting
   const sortColumn = notes[sortBy];
   const orderFn = sortOrder === "asc" ? asc : desc;
-  query = query.orderBy(orderFn(sortColumn)) as any;
+  query = query.orderBy(orderFn(sortColumn));
 
   // Apply pagination
-  query = query.limit(limit).offset(offset) as any;
+  query = query.limit(limit).offset(offset);
 
   return await query;
 }

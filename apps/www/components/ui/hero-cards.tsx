@@ -609,17 +609,6 @@ export default function HeroCards() {
         </div>
       </div>
 
-      {/* CSS for wave animation */}
-      <style jsx global>{`
-        @keyframes waveAnimation {
-          0% {
-            height: 30%;
-          }
-          100% {
-            height: 100%;
-          }
-        }
-      `}</style>
     </div>
   )
 }

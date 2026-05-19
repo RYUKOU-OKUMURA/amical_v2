@@ -4,7 +4,6 @@ import { api } from "@/trpc/react";
 import { Mutex } from "async-mutex";
 
 // Audio configuration
-const FRAME_SIZE = 512; // 32ms at 16kHz
 const SAMPLE_RATE = 16000;
 
 export interface UseAudioCaptureParams {

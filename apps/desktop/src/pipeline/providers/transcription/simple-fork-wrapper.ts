@@ -7,12 +7,12 @@ import { AppError, ErrorCodes } from "../../../types/error";
 interface WorkerMessage {
   id: number;
   method: string;
-  args: any[];
+  args: unknown[];
 }
 
 interface WorkerResponse {
   id: number;
-  result?: any;
+  result?: unknown;
   error?: string;
 }
 
@@ -29,8 +29,8 @@ export class SimpleForkWrapper {
   private pendingCalls = new Map<
     number,
     {
-      resolve: (value: any) => void;
-      reject: (error: any) => void;
+      resolve: (value: unknown) => void;
+      reject: (error: unknown) => void;
     }
   >();
 
@@ -49,7 +49,7 @@ export class SimpleForkWrapper {
     let actualWorkerPath = this.workerPath;
 
     // Set up environment for the worker
-    const workerEnv: any = {
+    const workerEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
       NODE_OPTIONS: "--max-old-space-size=8192",
@@ -137,7 +137,10 @@ export class SimpleForkWrapper {
 
     return new Promise((resolve, reject) => {
       const id = this.messageId++;
-      this.pendingCalls.set(id, { resolve, reject });
+      this.pendingCalls.set(id, {
+        resolve: (value) => resolve(value as T),
+        reject,
+      });
 
       // Convert Float32Array to regular array for IPC
       const serializedArgs = args.map((arg) => {

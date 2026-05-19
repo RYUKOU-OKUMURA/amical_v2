@@ -13,9 +13,7 @@ const ShortcutIndicator: React.FC = () => {
       setTimeout(() => setIsPressed(false), 500);
     };
 
-    electronAPI.onGlobalShortcut(handleShortcut);
-
-    // No need to remove listener for this simple case, but you can add cleanup if you expose it
+    return electronAPI.onGlobalShortcut(handleShortcut);
   }, []);
 
   return (

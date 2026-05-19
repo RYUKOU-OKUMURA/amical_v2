@@ -29,6 +29,8 @@ export function applyLightweightTranscriptionCleanup(
   text: string,
   options: { language?: string } = {},
 ): string {
+  void options;
+
   let cleaned = text
     .replace(/[ \t\u3000]+/g, " ")
     .replace(/\s+([、。！？!?.,])/g, "$1")

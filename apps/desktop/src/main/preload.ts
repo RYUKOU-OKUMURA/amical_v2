@@ -58,54 +58,41 @@ const api: ElectronAPI = {
   // Model Management API (moved to tRPC)
   // Transcription Database API (moved to tRPC)
 
-  on: (channel: string, callback: (...args: any[]) => void) => {
-    const handler = (_event: IpcRendererEvent, ...args: any[]) =>
-      callback(...args);
-    ipcRenderer.on(channel, handler);
-    // Store the handler mapping for proper cleanup
-    if (!(window as any).__electronEventHandlers) {
-      (window as any).__electronEventHandlers = new Map();
-    }
-    if (!(window as any).__electronEventHandlers.has(channel)) {
-      (window as any).__electronEventHandlers.set(channel, []);
-    }
-    (window as any).__electronEventHandlers
-      .get(channel)
-      .push({ original: callback, handler });
+  onNotesWindowOpenRequested: (callback: (noteId?: number) => void) => {
+    const handler = (_event: IpcRendererEvent, noteId?: number) =>
+      callback(noteId);
+    ipcRenderer.on("notes-window:open-requested", handler);
+    return () => {
+      ipcRenderer.removeListener("notes-window:open-requested", handler);
+    };
   },
-  off: (channel: string, callback: (...args: any[]) => void) => {
-    if (
-      (window as any).__electronEventHandlers &&
-      (window as any).__electronEventHandlers.has(channel)
-    ) {
-      const handlers = (window as any).__electronEventHandlers.get(channel);
-      const handlerInfo = handlers.find((h: any) => h.original === callback);
-      if (handlerInfo) {
-        ipcRenderer.removeListener(channel, handlerInfo.handler);
-        const index = handlers.indexOf(handlerInfo);
-        handlers.splice(index, 1);
-      }
-    }
+  onNavigate: (callback: (route: string) => void) => {
+    const handler = (_event: IpcRendererEvent, route: string) =>
+      callback(route);
+    ipcRenderer.on("navigate", handler);
+    return () => {
+      ipcRenderer.removeListener("navigate", handler);
+    };
   },
 
   // Logging API for renderer process - sends to main process via IPC
   log: {
-    info: (...args: any[]) =>
+    info: (...args: unknown[]) =>
       ipcRenderer.invoke("log-message", "info", "renderer", ...args),
-    warn: (...args: any[]) =>
+    warn: (...args: unknown[]) =>
       ipcRenderer.invoke("log-message", "warn", "renderer", ...args),
-    error: (...args: any[]) =>
+    error: (...args: unknown[]) =>
       ipcRenderer.invoke("log-message", "error", "renderer", ...args),
-    debug: (...args: any[]) =>
+    debug: (...args: unknown[]) =>
       ipcRenderer.invoke("log-message", "debug", "renderer", ...args),
     scope: (name: string) => ({
-      info: (...args: any[]) =>
+      info: (...args: unknown[]) =>
         ipcRenderer.invoke("log-message", "info", name, ...args),
-      warn: (...args: any[]) =>
+      warn: (...args: unknown[]) =>
         ipcRenderer.invoke("log-message", "warn", name, ...args),
-      error: (...args: any[]) =>
+      error: (...args: unknown[]) =>
         ipcRenderer.invoke("log-message", "error", name, ...args),
-      debug: (...args: any[]) =>
+      debug: (...args: unknown[]) =>
         ipcRenderer.invoke("log-message", "debug", name, ...args),
     }),
   },

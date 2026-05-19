@@ -77,12 +77,6 @@ export default function PreferencesSettingsPage() {
     });
   };
 
-  const handleMinimizeToTrayChange = (checked: boolean) => {
-    updatePreferencesMutation.mutate({
-      minimizeToTray: checked,
-    });
-  };
-
   const handleShowInDockChange = (checked: boolean) => {
     updatePreferencesMutation.mutate({
       showInDock: checked,
@@ -121,7 +115,6 @@ export default function PreferencesSettingsPage() {
 
   const showWidgetWhileInactive =
     preferencesQuery.data?.showWidgetWhileInactive ?? true;
-  const minimizeToTray = preferencesQuery.data?.minimizeToTray ?? false;
   const launchAtLogin = preferencesQuery.data?.launchAtLogin ?? true;
   const showInDock = preferencesQuery.data?.showInDock ?? true;
   const muteSystemAudio = preferencesQuery.data?.muteSystemAudio ?? true;
@@ -164,25 +157,6 @@ export default function PreferencesSettingsPage() {
             </div>
 
             <Separator />
-
-            {/* Minimize to Tray Section */}
-            {/* <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <Label className="text-base font-medium text-foreground">
-                  Minimize to tray
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Keep the application running in the system tray when minimized
-                </p>
-              </div>
-              <Switch
-                checked={minimizeToTray}
-                onCheckedChange={handleMinimizeToTrayChange}
-                disabled={updatePreferencesMutation.isPending}
-              />
-            </div>
-
-            <Separator /> */}
 
             {/* Show Widget While Inactive Section */}
             <div className="flex items-center justify-between">

@@ -201,7 +201,7 @@ export function createScopedLogger(scope: string) {
 export function logError(
   error: Error,
   context?: string,
-  metadata?: Record<string, any>,
+  metadata?: Record<string, unknown>,
 ) {
   const errorInfo = {
     message: error.message,
@@ -217,7 +217,7 @@ export function logError(
 export function logPerformance(
   operation: string,
   startTime: number,
-  metadata?: Record<string, any>,
+  metadata?: Record<string, unknown>,
 ) {
   const duration = Date.now() - startTime;
   logger?.main.info(`Performance: ${operation}`, {
@@ -227,7 +227,7 @@ export function logPerformance(
 }
 
 // Development helpers
-export function logDebugInfo(component: string, data: any) {
+export function logDebugInfo(component: string, data: unknown) {
   if (process.env.NODE_ENV === "development" || !app.isPackaged) {
     logger?.main.debug(`[${component}]`, data);
   }

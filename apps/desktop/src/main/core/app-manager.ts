@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, shell } from "electron";
+import { app, dialog, ipcMain } from "electron";
 import { initializeDatabase } from "../../db";
 import { logger } from "../logger";
 import { WindowManager } from "./window-manager";
@@ -17,6 +17,7 @@ import { runDataMigrations } from "../migrations/data-migrations";
 import { getMainFeatureFlagState } from "@/main/utils/feature-flags";
 import { NOTE_WINDOW_FEATURE_FLAG } from "@/utils/feature-flags";
 import { initMainI18n } from "../../i18n/main";
+import { openExternalUrl } from "../utils/external-url";
 
 export class AppManager {
   private windowManager!: WindowManager;
@@ -30,7 +31,7 @@ export class AppManager {
     // WindowManager created in initialize() after deps are ready
   }
 
-  handleDeepLink(url: string): void {
+  async handleDeepLink(url: string): Promise<void> {
     logger.main.info("Handling deep link:", url);
 
     // Parse the URL
@@ -47,7 +48,7 @@ export class AppManager {
         if (code) {
           // Get AuthService and complete the OAuth flow
           const authService = this.serviceManager.getService("authService");
-          authService.handleAuthCallback(code, state);
+          await authService.handleAuthCallback(code, state);
         }
       }
 
@@ -130,7 +131,7 @@ export class AppManager {
 
     // Setup IPC handlers
     ipcMain.handle("open-external", async (_event, url: string) => {
-      await shell.openExternal(url);
+      await openExternalUrl(url);
       logger.main.debug("Opening external URL", { url });
     });
 

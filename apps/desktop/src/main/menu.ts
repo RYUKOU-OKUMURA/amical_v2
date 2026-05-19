@@ -1,4 +1,4 @@
-import { app, Menu, MenuItemConstructorOptions, BrowserWindow } from "electron";
+import { app, Menu, MenuItemConstructorOptions } from "electron";
 import { initMainI18n } from "../i18n/main";
 
 // Forward declaration or import of the function type if it's complex

@@ -22,7 +22,7 @@ async function directoryExists(directory: string): Promise<boolean> {
   try {
     const stats = await fs.stat(directory);
     return stats.isDirectory();
-  } catch (error) {
+  } catch {
     return false;
   }
 }

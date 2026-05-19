@@ -285,12 +285,7 @@ const config: ForgeConfig = {
     // NOTE: This hook does NOT run when prune: false is set in packagerConfig (line 467).
     // The empty directory cleanup code below is currently dead code.
     // DLL bundling has been moved to postPackage which always runs.
-    packageAfterPrune: async (
-      _forgeConfig,
-      buildPath,
-      _electronVersion,
-      _platform,
-    ) => {
+    packageAfterPrune: async (_forgeConfig, buildPath) => {
       try {
         function getItemsFromFolder(
           path: string,
@@ -505,10 +500,7 @@ const config: ForgeConfig = {
                   hardenedRuntime: true,
                 };
               }
-              // Use default entitlements for everything else
-              // https://www.npmjs.com/package/@electron/osx-sign#opts
-              // !still need to do any
-              return null as any;
+              return null;
             },
           } as LegacyOsxSignOptions,
           // Notarization for macOS

@@ -6,7 +6,7 @@
 export interface PipelineContext {
   sessionId: string;
   sharedData: SharedPipelineData;
-  metadata: Map<string, any>;
+  metadata: Map<string, unknown>;
 }
 
 import { GetAccessibilityContextResult } from "@amical/types";

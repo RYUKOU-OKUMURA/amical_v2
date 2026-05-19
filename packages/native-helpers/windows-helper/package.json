@@ -3,8 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "build": "pnpm --filter @amical/types generate:all && dotnet publish -c Release -r win-x64 --self-contained true -o bin",
-    "build:native": "dotnet publish -c Release -r win-x64 --self-contained true -o bin",
+    "build": "node scripts/build.mjs",
+    "build:native": "node scripts/build.mjs --native-only",
     "clean": "rm -rf bin obj"
   },
   "os": [

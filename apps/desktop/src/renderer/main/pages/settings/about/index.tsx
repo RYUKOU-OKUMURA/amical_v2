@@ -1,9 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, BookOpen } from "lucide-react";
-import { toast } from "sonner";
+import { BookOpen } from "lucide-react";
 import { api } from "@/trpc/react";
 import { useTranslation } from "react-i18next";
 
@@ -14,16 +12,7 @@ const CONTACT_EMAIL = "contact@amical.ai";
 
 export default function AboutSettingsPage() {
   const { t } = useTranslation();
-  const [checking, setChecking] = useState(false);
   const { data: version } = api.settings.getAppVersion.useQuery();
-
-  function handleCheckUpdates() {
-    setChecking(true);
-    setTimeout(() => {
-      setChecking(false);
-      toast.success(t("settings.about.toast.upToDate"));
-    }, 2000);
-  }
 
   return (
     <div>
@@ -46,17 +35,6 @@ export default function AboutSettingsPage() {
                 v{version || "..."}
               </Badge>
             </div>
-            {/* <Button
-              variant="outline"
-              className="mt-4 md:mt-0 flex items-center gap-2"
-              onClick={handleCheckUpdates}
-              disabled={checking}
-            >
-              <RefreshCw
-                className={"w-4 h-4 " + (checking ? "animate-spin" : "")}
-              />
-              {checking ? "Checking..." : "Check for Updates"}
-            </Button> */}
           </CardContent>
         </Card>
 
@@ -160,22 +138,29 @@ const ExternalLink = ({
   href: string;
   children: React.ReactNode;
 }) => {
+  const openLink = async () => {
+    await window.electronAPI.openExternal(href);
+  };
+
   const handleClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
-    if (window.electronAPI?.openExternal) {
-      await window.electronAPI.openExternal(href);
+    await openLink();
+  };
+
+  const handleKeyDown = async (e: React.KeyboardEvent<HTMLAnchorElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") {
+      return;
     }
+
+    e.preventDefault();
+    await openLink();
   };
 
   return (
     <a
       href={href}
       onClick={handleClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          handleClick(e as any);
-        }
-      }}
+      onKeyDown={handleKeyDown}
       style={{ cursor: "pointer" }}
     >
       {children}

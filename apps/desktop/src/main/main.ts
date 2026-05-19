@@ -63,7 +63,7 @@ let pendingDeepLink: string | null = null;
 app.on("open-url", (event, url) => {
   event.preventDefault();
   if (isInitialized) {
-    appManager.handleDeepLink(url);
+    void appManager.handleDeepLink(url);
   } else {
     pendingDeepLink = url;
   }
@@ -80,7 +80,7 @@ app.on("second-instance", (_event, commandLine) => {
   const url = commandLine.find((arg) => arg.startsWith(`${APP_PROTOCOL}://`));
   if (url) {
     if (isInitialized) {
-      appManager.handleDeepLink(url);
+      void appManager.handleDeepLink(url);
     } else {
       pendingDeepLink = url;
     }
@@ -94,7 +94,7 @@ app.whenReady().then(async () => {
 
     // Process any deep link that was received before initialization completed
     if (pendingDeepLink) {
-      appManager.handleDeepLink(pendingDeepLink);
+      await appManager.handleDeepLink(pendingDeepLink);
       pendingDeepLink = null;
     }
   } catch (error) {

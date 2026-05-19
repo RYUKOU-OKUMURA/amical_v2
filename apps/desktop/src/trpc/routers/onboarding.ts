@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { systemPreferences, shell, app } from "electron";
+import { systemPreferences, app } from "electron";
 import { createRouter, procedure } from "../trpc";
 import {
   OnboardingPreferencesSchema,
@@ -8,6 +8,7 @@ import {
   type OnboardingFeatureFlags,
 } from "../../types/onboarding";
 import { logger } from "../../main/logger";
+import { openExternalUrl } from "../../main/utils/external-url";
 
 export const onboardingRouter = createRouter({
   // --------------------------------------------------------------------------
@@ -381,7 +382,7 @@ export const onboardingRouter = createRouter({
           systemPreferences.isTrustedAccessibilityClient(true);
 
           // Open System Preferences to Privacy & Security > Accessibility
-          await shell.openExternal(
+          await openExternalUrl(
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
           );
 
@@ -416,7 +417,7 @@ export const onboardingRouter = createRouter({
     .input(z.object({ url: z.string().url() }))
     .mutation(async ({ input }): Promise<void> => {
       try {
-        await shell.openExternal(input.url);
+        await openExternalUrl(input.url);
         logger.main.debug("Opened external URL:", input.url);
       } catch (error) {
         logger.main.error("Failed to open external URL:", error);

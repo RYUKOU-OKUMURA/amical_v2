@@ -588,7 +588,6 @@ export const modelsRouter = createRouter({
   // which conflicts with electron-trpc's attempt to add the same symbol.
   // While Observables are deprecated in tRPC, they work without this conflict.
   // TODO: Remove this workaround when electron-trpc is updated to handle native Symbol.asyncDispose
-  // eslint-disable-next-line deprecation/deprecation
   onDownloadProgress: procedure.subscription(({ ctx }) => {
     return observable<{ modelId: string; progress: DownloadProgress }>(
       (emit) => {
@@ -615,7 +614,6 @@ export const modelsRouter = createRouter({
   }),
 
   // Using Observable instead of async generator due to Symbol.asyncDispose conflict
-  // eslint-disable-next-line deprecation/deprecation
   onDownloadComplete: procedure.subscription(({ ctx }) => {
     return observable<{
       modelId: string;
@@ -643,7 +641,6 @@ export const modelsRouter = createRouter({
   }),
 
   // Using Observable instead of async generator due to Symbol.asyncDispose conflict
-  // eslint-disable-next-line deprecation/deprecation
   onDownloadError: procedure.subscription(({ ctx }) => {
     return observable<{ modelId: string; error: string }>((emit) => {
       const modelService = ctx.serviceManager.getService("modelService");
@@ -665,7 +662,6 @@ export const modelsRouter = createRouter({
   }),
 
   // Using Observable instead of async generator due to Symbol.asyncDispose conflict
-  // eslint-disable-next-line deprecation/deprecation
   onDownloadCancelled: procedure.subscription(({ ctx }) => {
     return observable<{ modelId: string }>((emit) => {
       const modelService = ctx.serviceManager.getService("modelService");
@@ -687,7 +683,6 @@ export const modelsRouter = createRouter({
   }),
 
   // Using Observable instead of async generator due to Symbol.asyncDispose conflict
-  // eslint-disable-next-line deprecation/deprecation
   onModelDeleted: procedure.subscription(({ ctx }) => {
     return observable<{ modelId: string }>((emit) => {
       const modelService = ctx.serviceManager.getService("modelService");
@@ -709,7 +704,6 @@ export const modelsRouter = createRouter({
   }),
 
   // Using Observable instead of async generator due to Symbol.asyncDispose conflict
-  // eslint-disable-next-line deprecation/deprecation
   onSelectionChanged: procedure.subscription(({ ctx }) => {
     return observable<{
       oldModelId: string | null;

@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/card";
 import { SubscriptionForm } from "@/components/ui/subscription-form";
 import { Metadata } from "next";
+import Image from "next/image";
 
 export const metadata: Metadata = {
   title: "Blog",
@@ -50,9 +51,11 @@ export default function Page(): React.ReactElement {
                     href={post.url}
                     className="transition-opacity duration-200 fade-in hover:opacity-70"
                   >
-                    <img
+                    <Image
                       src={post.data.image}
                       alt={post.data.title}
+                      width={1200}
+                      height={675}
                       className="h-full w-full object-cover object-center"
                     />
                   </a>

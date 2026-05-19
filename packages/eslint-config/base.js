@@ -31,6 +31,7 @@ export const config = [
       ".turbo/**",
       "coverage/**",
       ".next/**",
+      ".source/**",
       "out/**",
       "*.min.js",
       "*.bundle.js",

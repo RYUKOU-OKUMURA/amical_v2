@@ -241,7 +241,6 @@ const resetProviderState = (): ProviderState => createInitialProviderState();
 const cloudConfigFromEnvironment = (): CloudConfig => {
   const apiEndpoint = process.env.API_ENDPOINT || __BUNDLED_API_ENDPOINT;
   // Runtime-only escape hatch; the bundled default is intentionally gRPC.
-  // eslint-disable-next-line turbo/no-undeclared-env-vars
   const configuredTransport = process.env.CLOUD_DICTATION_TRANSPORT || "";
 
   return {

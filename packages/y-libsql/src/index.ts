@@ -80,9 +80,13 @@ export class LibSQLPersistence {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         doc_name TEXT NOT NULL,
         update_data BLOB NOT NULL,
-        created_at INTEGER DEFAULT (unixepoch()),
-        INDEX idx_doc_name (doc_name)
+        created_at INTEGER DEFAULT (unixepoch())
       )
+    `);
+
+    await this.client.execute(`
+      CREATE INDEX IF NOT EXISTS idx_yjs_updates_doc_name
+      ON yjs_updates(doc_name)
     `);
 
     // Create metadata table
@@ -114,11 +118,7 @@ export class LibSQLPersistence {
               Y.applyUpdate(this.doc, new Uint8Array(updateData), this);
             } else if (typeof updateData === "string") {
               // Handle base64 encoded data
-              const binaryString = atob(updateData);
-              const bytes = new Uint8Array(binaryString.length);
-              for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-              }
+              const bytes = Buffer.from(updateData, "base64");
               Y.applyUpdate(this.doc, bytes, this);
             }
           }
@@ -152,7 +152,7 @@ export class LibSQLPersistence {
 
     try {
       // Convert Uint8Array to base64 for storage
-      const base64Update = btoa(String.fromCharCode(...update));
+      const base64Update = Buffer.from(update).toString("base64");
 
       await this.client.execute({
         sql: "INSERT INTO yjs_updates (doc_name, update_data) VALUES (?, ?)",
@@ -217,7 +217,7 @@ export class LibSQLPersistence {
     });
 
     // Store the compacted update
-    const base64Update = btoa(String.fromCharCode(...stateUpdate));
+    const base64Update = Buffer.from(stateUpdate).toString("base64");
     await this.client.execute({
       sql: "INSERT INTO yjs_updates (doc_name, update_data) VALUES (?, ?)",
       args: [this.docName, base64Update],

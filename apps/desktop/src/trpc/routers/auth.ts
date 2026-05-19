@@ -46,7 +46,6 @@ export const authRouter = createRouter({
 
   // Subscribe to auth state changes
   // Using Observable instead of async generator due to Symbol.asyncDispose conflict
-  // eslint-disable-next-line deprecation/deprecation
   onAuthStateChange: procedure.subscription(({ ctx }) => {
     return observable<{
       eventType: "initial" | "authenticated" | "signed-out" | "auth-error";

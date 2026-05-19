@@ -10,13 +10,31 @@ import { Tab, Tabs } from "fumadocs-ui/components/tabs";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+export const dynamicParams = false;
+
+const EMPTY_BLOG_PLACEHOLDER_SLUG = "__empty-blog-placeholder";
+
 export async function generateMetadata(props: {
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const params = await props.params;
   const page = blog.getPage([params.slug]);
 
-  if (!page) notFound();
+  if (!page) {
+    if (params.slug === EMPTY_BLOG_PLACEHOLDER_SLUG) {
+      return {
+        title: {
+          absolute: "Blog | Amical",
+        },
+        robots: {
+          index: false,
+          follow: false,
+        },
+      };
+    }
+
+    notFound();
+  }
 
   return {
     title: {
@@ -47,7 +65,11 @@ export default async function Page(props: {
   const params = await props.params;
   const page = blog.getPage([params.slug]);
 
-  if (!page) notFound();
+  if (!page) {
+    if (params.slug === EMPTY_BLOG_PLACEHOLDER_SLUG) return null;
+    notFound();
+  }
+
   const { body: Mdx, toc } = await page.data.load();
 
   return (
@@ -101,7 +123,9 @@ export default async function Page(props: {
 }
 
 export function generateStaticParams(): { slug: string }[] {
-  return blog.getPages().map((page) => ({
+  const params = blog.getPages().map((page) => ({
     slug: page.slugs[0] || "",
   }));
+
+  return params.length > 0 ? params : [{ slug: EMPTY_BLOG_PLACEHOLDER_SLUG }];
 }

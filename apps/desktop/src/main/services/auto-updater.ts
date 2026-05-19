@@ -57,6 +57,20 @@ export class AutoUpdaterService extends EventEmitter {
   private isChecking = false;
   private lastMetadata: UpdateMetadata | null = null;
   private updateDownloaded = false;
+  private readonly handleUpdateChannelChanged = (
+    channel: "stable" | "beta",
+  ) => {
+    this.currentChannel = channel;
+    // Reset to running version — the new channel's version space is different
+    this.effectiveVersion = app.getVersion();
+    this.updateDownloaded = false;
+    this.lastMetadata = null;
+    this.setFeedURL(channel);
+    logger.updater.info("Update channel changed, checking for updates", {
+      channel,
+    });
+    this.checkForUpdates();
+  };
 
   constructor() {
     super();
@@ -88,18 +102,7 @@ export class AutoUpdaterService extends EventEmitter {
     // Listen for channel changes
     settingsService.on(
       "update-channel-changed",
-      (channel: "stable" | "beta") => {
-        this.currentChannel = channel;
-        // Reset to running version — the new channel's version space is different
-        this.effectiveVersion = app.getVersion();
-        this.updateDownloaded = false;
-        this.lastMetadata = null;
-        this.setFeedURL(channel);
-        logger.updater.info("Update channel changed, checking for updates", {
-          channel,
-        });
-        this.checkForUpdates();
-      },
+      this.handleUpdateChannelChanged,
     );
 
     // Start periodic checks with platform-appropriate initial delay
@@ -300,7 +303,10 @@ export class AutoUpdaterService extends EventEmitter {
       this.checkInterval = null;
     }
     if (this.settingsService) {
-      this.settingsService.removeAllListeners("update-channel-changed");
+      this.settingsService.off(
+        "update-channel-changed",
+        this.handleUpdateChannelChanged,
+      );
       this.settingsService = null;
     }
   }

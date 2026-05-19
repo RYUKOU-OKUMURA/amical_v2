@@ -257,6 +257,7 @@ async function main() {
         await downloadNodeBinary(platform);
         success++;
       } catch (error) {
+        console.error(`Failed to download ${platform.name}:`, error);
         failed++;
       }
     }

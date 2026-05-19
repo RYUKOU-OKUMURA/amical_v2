@@ -49,7 +49,6 @@ export const recordingRouter = createRouter({
   // which conflicts with electron-trpc's attempt to add the same symbol.
   // While Observables are deprecated in tRPC, they work without this conflict.
   // TODO: Remove this workaround when electron-trpc is updated to handle native Symbol.asyncDispose
-  // eslint-disable-next-line deprecation/deprecation
   stateUpdates: procedure.subscription(({ ctx }) => {
     return observable<RecordingStateUpdate>((emit) => {
       const recordingManager =

@@ -6,7 +6,28 @@
     "AWS_SECRET_ACCESS_KEY",
     "AWS_REGION",
     "S3_BUCKET_NAME",
-    "S3_ENDPOINT"
+    "S3_ENDPOINT",
+    "APPLE_APP_PASSWORD",
+    "APPLE_ID",
+    "APPLE_TEAM_ID",
+    "AUTH_CLIENT_ID",
+    "AUTH_REDIRECT_URI",
+    "AUTH_TOKEN_ENDPOINT",
+    "AUTHORIZATION_ENDPOINT",
+    "BLOG_IMAGES_PREFIX",
+    "BLOG_PREFIX",
+    "CLOUD_DICTATION_TRANSPORT",
+    "CODESIGNING_IDENTITY",
+    "FORCE_ONBOARDING",
+    "LOG_DEBUG_SCOPES",
+    "LOG_LEVEL",
+    "NODE_ENV",
+    "ONBOARDING_SKIP_DISCOVERY",
+    "ONBOARDING_SKIP_FEATURES",
+    "ONBOARDING_SKIP_MODELS",
+    "ONBOARDING_SKIP_WELCOME",
+    "SKIP_CODESIGNING",
+    "SKIP_NOTARIZATION"
   ],
   "tasks": {
     "build": {
@@ -50,6 +71,10 @@
       ],
       "outputs": ["bin/**", "build/**"],
       "cache": true
+    },
+    "generate:all": {
+      "dependsOn": [],
+      "cache": false
     },
     "format:check": {},
     "lint": {

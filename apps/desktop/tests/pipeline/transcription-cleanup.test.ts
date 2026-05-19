@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { applyLightweightTranscriptionCleanup } from "../../src/pipeline/utils/transcription-cleanup";
+import {
+  applyLightweightTranscriptionCleanup,
+  shouldPreservePunctuatedTranscript,
+} from "../../src/pipeline/utils/transcription-cleanup";
 
 describe("transcription-cleanup", () => {
   it("adds a Japanese terminal period when punctuation cleanup is enabled", () => {
@@ -50,5 +53,34 @@ describe("transcription-cleanup", () => {
         language: "ja",
       }),
     ).toBe("句読点とか句読点。");
+  });
+
+  it("adds conservative Japanese punctuation hints to long final dictation", () => {
+    expect(
+      applyLightweightTranscriptionCleanup(
+        "句読点がなかなか入らないね音声入力中のプレビューにたまに句読点が表示されるんだけど最終の貼り付けテキストには反映されてなかったりするからちなみにこれも音声入力で入れてるテキストねこんな感じになる",
+        { language: "ja" },
+      ),
+    ).toBe(
+      "句読点がなかなか入らないね。音声入力中のプレビューにたまに句読点が表示されるんだけど、最終の貼り付けテキストには反映されてなかったりするから。ちなみに、これも音声入力で入れてるテキストね。こんな感じになる。",
+    );
+  });
+
+  it("keeps a punctuated chunk transcript when a final pass drops punctuation", () => {
+    expect(
+      shouldPreservePunctuatedTranscript(
+        "句読点がなかなか入らないね。音声入力中のプレビューでは表示されるんだけど、最終には反映されない。",
+        "句読点がなかなか入らないね音声入力中のプレビューでは表示されるんだけど最終には反映されない",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts a final pass when punctuation is not materially worse", () => {
+    expect(
+      shouldPreservePunctuatedTranscript(
+        "句読点がなかなか入らないね。音声入力中のプレビューでは表示される。",
+        "句読点がなかなか入らないね。音声入力中のプレビューでは表示される。",
+      ),
+    ).toBe(false);
   });
 });

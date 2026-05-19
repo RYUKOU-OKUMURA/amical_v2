@@ -41,7 +41,10 @@ import {
   isAmicalCloudSelectionValue,
 } from "../utils/model-selection";
 import { countWords } from "../utils/dictation-stats";
-import { applyLightweightTranscriptionCleanup } from "../pipeline/utils/transcription-cleanup";
+import {
+  applyLightweightTranscriptionCleanup,
+  shouldPreservePunctuatedTranscript,
+} from "../pipeline/utils/transcription-cleanup";
 
 interface CompletedTranscriptionPersistenceJob {
   sessionId: string;
@@ -794,6 +797,18 @@ export class TranscriptionService {
           {
             sessionId: session.context.sessionId,
             rawLength,
+            finalPassLength: finalPassText.length,
+          },
+        );
+        return null;
+      }
+
+      if (shouldPreservePunctuatedTranscript(rawTranscription, finalPassText)) {
+        logger.transcription.info(
+          "Groq long-form final pass lost punctuation; keeping chunk transcript",
+          {
+            sessionId: session.context.sessionId,
+            originalLength: rawLength,
             finalPassLength: finalPassText.length,
           },
         );

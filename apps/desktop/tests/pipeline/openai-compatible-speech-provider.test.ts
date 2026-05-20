@@ -18,6 +18,7 @@ vi.mock("../../src/utils/http-client", () => ({
 }));
 
 import { OpenAICompatibleSpeechProvider } from "../../src/pipeline/providers/transcription/openai-compatible-speech-provider";
+import { groqRateLimitCache } from "../../src/services/groq-rate-limit-cache";
 
 const FRAME_SIZE = 512;
 
@@ -47,13 +48,14 @@ function createProvider(
   timing?: ConstructorParameters<
     typeof OpenAICompatibleSpeechProvider
   >[1]["timing"],
+  name = "test-api",
 ): OpenAICompatibleSpeechProvider {
   const settingsService = {
     getDefaultSpeechModel: vi.fn(async () => "test-whisper-model"),
   } as unknown as SettingsService;
 
   return new OpenAICompatibleSpeechProvider(settingsService, {
-    name: "test-api",
+    name,
     displayName: "Test API",
     defaultBaseURL: "https://speech.test/openai/v1",
     defaultModel: "test-whisper-model",
@@ -98,9 +100,11 @@ async function feedFrames(
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  groqRateLimitCache.clear();
   fetchMock = vi.fn(async () => ({
     ok: true,
     status: 200,
+    headers: new Headers(),
     json: async () => ({
       text: "こんにちは",
       segments: [{ text: "こんにちは", no_speech_prob: 0.01 }],
@@ -169,5 +173,69 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     expect(formData.get("prompt")).toBeNull();
+  });
+});
+
+describe("OpenAICompatibleSpeechProvider Groq rate limit cache", () => {
+  it("caches Groq rate limit headers after transcription", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        "x-ratelimit-remaining-requests": "1847",
+        "x-ratelimit-limit-requests": "2000",
+        "x-ratelimit-reset-requests": "2m59.56s",
+      }),
+      json: async () => ({
+        text: "こんにちは",
+        segments: [{ text: "こんにちは", no_speech_prob: 0.01 }],
+      }),
+    });
+
+    const provider = createProvider(
+      {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 4000,
+        minSilenceDurationMs: 384,
+      },
+      "groq",
+    );
+
+    await feedFrames(provider, 50, 12);
+
+    expect(groqRateLimitCache.get()).toMatchObject({
+      remainingRequests: 1847,
+      limitRequests: 2000,
+      resetRequestsText: "2m59.56s",
+      source: "transcription",
+    });
+  });
+
+  it("does not cache rate limit headers for non-Groq providers", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        "x-ratelimit-remaining-requests": "1847",
+        "x-ratelimit-limit-requests": "2000",
+      }),
+      json: async () => ({
+        text: "こんにちは",
+        segments: [{ text: "こんにちは", no_speech_prob: 0.01 }],
+      }),
+    });
+
+    const provider = createProvider(
+      {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 4000,
+        minSilenceDurationMs: 384,
+      },
+      "test-api",
+    );
+
+    await feedFrames(provider, 50, 12);
+
+    expect(groqRateLimitCache.get()).toBeNull();
   });
 });

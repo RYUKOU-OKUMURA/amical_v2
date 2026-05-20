@@ -990,6 +990,18 @@
             "removeFailed": "Failed to remove Groq API key",
             "validationError": "Failed to validate Groq API key",
             "connectFirst": "Add and connect your Groq API key first"
+          },
+          "rateLimit": {
+            "title": "Free tier estimate (whisper-large-v3)",
+            "requestsToday": "{{remaining}} / {{limit}} requests (today)",
+            "resetsIn": "Daily reset in: {{time}}",
+            "lastUpdated": "Last updated: {{time}} ago",
+            "refresh": "Refresh now",
+            "refreshing": "Refreshing…",
+            "empty": "Use dictation or click Refresh to load your estimate",
+            "footnote": "Audio-time limits are not exposed by the Groq API, so request counts are approximate.",
+            "consoleLink": "View details in Groq Console",
+            "refreshFailed": "Failed to refresh Groq free tier estimate"
           }
         },
         "aqua": {

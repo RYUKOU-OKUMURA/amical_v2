@@ -53,8 +53,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DownloadProgress } from "@/constants/models";
+import { Progress } from "@/components/ui/progress";
 import { api } from "@/trpc/react";
 import { useTranslation } from "react-i18next";
+import { formatDistanceToNow } from "date-fns";
+import { ja } from "date-fns/locale";
+import { getGroqRateLimitUsagePercent } from "@/utils/groq-rate-limit";
 
 const SpeedRating = ({ rating }: { rating: number }) => {
   const fullIcons = Math.floor(rating);
@@ -115,7 +119,7 @@ const AccuracyRating = ({ rating }: { rating: number }) => {
 };
 
 export default function SpeechTab() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [downloadProgress, setDownloadProgress] = useState<
     Record<string, DownloadProgress>
   >({});
@@ -144,6 +148,27 @@ export default function SpeechTab() {
     api.settings.getModelProvidersConfig.useQuery();
 
   const utils = api.useUtils();
+
+  const groqRateLimitQuery = api.settings.getGroqRateLimitStatus.useQuery(
+    undefined,
+    {
+      enabled: Boolean(modelProvidersConfigQuery.data?.groq?.apiKey),
+      refetchInterval: 60_000,
+    },
+  );
+
+  const refreshGroqRateLimitMutation =
+    api.settings.refreshGroqRateLimit.useMutation({
+      onSuccess: () => {
+        utils.settings.getGroqRateLimitStatus.invalidate();
+      },
+      onError: (error) => {
+        toast.error(
+          error.message ||
+            t("settings.aiModels.speech.groq.rateLimit.refreshFailed"),
+        );
+      },
+    });
 
   // tRPC mutations
   const downloadModelMutation = api.models.downloadModel.useMutation({
@@ -199,6 +224,7 @@ export default function SpeechTab() {
       toast.success(t("settings.aiModels.speech.groq.toast.saved"));
       setGroqValidationError("");
       utils.settings.getModelProvidersConfig.invalidate();
+      utils.settings.getGroqRateLimitStatus.invalidate();
       utils.models.getModels.invalidate({ type: "speech" });
       utils.models.getTranscriptionModels.invalidate();
       utils.models.isTranscriptionAvailable.invalidate();
@@ -215,6 +241,7 @@ export default function SpeechTab() {
       setGroqApiKey("");
       setGroqValidationError("");
       utils.settings.getModelProvidersConfig.invalidate();
+      utils.settings.getGroqRateLimitStatus.invalidate();
       utils.models.getModels.invalidate({ type: "speech" });
       utils.models.getTranscriptionModels.invalidate();
       utils.models.isTranscriptionAvailable.invalidate();
@@ -237,6 +264,8 @@ export default function SpeechTab() {
         toast.error(message);
         return;
       }
+
+      utils.settings.getGroqRateLimitStatus.invalidate();
 
       setGroqConfigMutation.mutate({
         apiKey: groqApiKey.trim(),
@@ -573,7 +602,17 @@ export default function SpeechTab() {
   const groqBusy =
     validateGroqMutation.isPending ||
     setGroqConfigMutation.isPending ||
-    removeGroqConfigMutation.isPending;
+    removeGroqConfigMutation.isPending ||
+    refreshGroqRateLimitMutation.isPending;
+  const groqRateLimitStatus = groqRateLimitQuery.data ?? null;
+  const groqRateLimitUsagePercent = groqRateLimitStatus
+    ? getGroqRateLimitUsagePercent(groqRateLimitStatus)
+    : 0;
+  const isGroqRateLimitLow =
+    groqRateLimitStatus !== null &&
+    groqRateLimitStatus.limitRequests > 0 &&
+    groqRateLimitStatus.remainingRequests / groqRateLimitStatus.limitRequests <
+      0.1;
   const aquaBusy =
     validateAquaMutation.isPending ||
     setAquaConfigMutation.isPending ||
@@ -645,6 +684,101 @@ export default function SpeechTab() {
                   <p className="text-xs text-destructive">
                     {groqValidationError}
                   </p>
+                )}
+                {isGroqConfigured && (
+                  <div className="space-y-3 rounded-md border bg-background/60 p-3">
+                    <p className="text-sm font-medium">
+                      {t("settings.aiModels.speech.groq.rateLimit.title")}
+                    </p>
+                    {groqRateLimitStatus ? (
+                      <>
+                        <Progress
+                          value={groqRateLimitUsagePercent}
+                          className={
+                            isGroqRateLimitLow
+                              ? "[&_[data-slot=progress-indicator]]:bg-amber-500"
+                              : undefined
+                          }
+                        />
+                        <p className="text-sm text-muted-foreground">
+                          {t(
+                            "settings.aiModels.speech.groq.rateLimit.requestsToday",
+                            {
+                              remaining:
+                                groqRateLimitStatus.remainingRequests.toLocaleString(),
+                              limit:
+                                groqRateLimitStatus.limitRequests.toLocaleString(),
+                            },
+                          )}
+                        </p>
+                        {groqRateLimitStatus.resetRequestsText && (
+                          <p className="text-xs text-muted-foreground">
+                            {t(
+                              "settings.aiModels.speech.groq.rateLimit.resetsIn",
+                              {
+                                time: groqRateLimitStatus.resetRequestsText,
+                              },
+                            )}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          {t(
+                            "settings.aiModels.speech.groq.rateLimit.lastUpdated",
+                            {
+                              time: formatDistanceToNow(
+                                new Date(groqRateLimitStatus.updatedAt),
+                                {
+                                  locale: i18n.language.startsWith("ja")
+                                    ? ja
+                                    : undefined,
+                                },
+                              ),
+                            },
+                          )}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        {t("settings.aiModels.speech.groq.rateLimit.empty")}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => refreshGroqRateLimitMutation.mutate()}
+                        disabled={groqBusy}
+                      >
+                        {refreshGroqRateLimitMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            {t(
+                              "settings.aiModels.speech.groq.rateLimit.refreshing",
+                            )}
+                          </>
+                        ) : (
+                          t("settings.aiModels.speech.groq.rateLimit.refresh")
+                        )}
+                      </Button>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto px-0"
+                        onClick={() =>
+                          void window.electronAPI.openExternal(
+                            "https://console.groq.com/settings/limits",
+                          )
+                        }
+                      >
+                        {t(
+                          "settings.aiModels.speech.groq.rateLimit.consoleLink",
+                        )}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t("settings.aiModels.speech.groq.rateLimit.footnote")}
+                    </p>
+                  </div>
                 )}
               </div>
               <Badge

@@ -968,6 +968,18 @@
             "removeFailed": "Groq APIキーの削除に失敗しました",
             "validationError": "Groq APIキーの検証に失敗しました",
             "connectFirst": "先にGroq APIキーを追加して接続してください"
+          },
+          "rateLimit": {
+            "title": "無料枠の目安（whisper-large-v3）",
+            "requestsToday": "{{remaining}} / {{limit}} リクエスト（本日）",
+            "resetsIn": "本日のリセット: {{time}}",
+            "lastUpdated": "最終更新: {{time}}前",
+            "refresh": "今すぐ更新",
+            "refreshing": "更新中…",
+            "empty": "文字起こし後、または更新ボタンで表示されます",
+            "footnote": "音声時間の残量は Groq API から取得できないため、リクエスト数は目安です。",
+            "consoleLink": "Groq Console で詳細を確認",
+            "refreshFailed": "Groq 無料枠の更新に失敗しました"
           }
         },
         "aqua": {

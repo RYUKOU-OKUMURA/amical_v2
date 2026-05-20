@@ -11,6 +11,7 @@ import {
   HISTORY_RETENTION_PERIODS,
   DEFAULT_HISTORY_RETENTION_PERIOD,
 } from "../../constants/history-retention";
+import { groqRateLimitCache } from "../../services/groq-rate-limit-cache";
 
 // FormatterConfig schema
 const FormatterConfigSchema = z.object({
@@ -565,6 +566,7 @@ export const settingsRouter = createRouter({
         throw new Error("SettingsService not available");
       }
       await settingsService.removeGroqConfig();
+      groqRateLimitCache.clear();
       return true;
     } catch (error) {
       const logger = ctx.serviceManager.getLogger();
@@ -572,6 +574,42 @@ export const settingsRouter = createRouter({
         logger.main.error("Error removing Groq config:", error);
       }
       throw error;
+    }
+  }),
+
+  getGroqRateLimitStatus: procedure.query(() => {
+    return groqRateLimitCache.get();
+  }),
+
+  refreshGroqRateLimit: procedure.mutation(async ({ ctx }) => {
+    const modelService = ctx.serviceManager.getService("modelService");
+    if (!modelService) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Model manager service not initialized",
+      });
+    }
+
+    try {
+      const status = await modelService.refreshGroqRateLimit();
+      if (!status) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Groq API key is not configured",
+        });
+      }
+      return status;
+    } catch (error) {
+      if (error instanceof TRPCError) {
+        throw error;
+      }
+
+      const message =
+        error instanceof Error ? error.message : "Failed to refresh Groq rate limit";
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message,
+      });
     }
   }),
 

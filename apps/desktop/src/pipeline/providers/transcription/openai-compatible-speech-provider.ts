@@ -18,6 +18,8 @@ import {
   shouldDropSegment,
   type CompleteTranscriptionQuality,
 } from "../../utils/segment-filter";
+import { groqRateLimitCache } from "../../../services/groq-rate-limit-cache";
+import { parseGroqRateLimitHeaders } from "../../../utils/groq-rate-limit";
 import { buildWhisperPrompt } from "./whisper-prompt";
 
 interface OpenAICompatibleTranscriptionSegment {
@@ -418,6 +420,16 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
       body: formData,
       signal: AbortSignal.timeout(30_000),
     });
+
+    if (this.options.name === "groq") {
+      const rateLimitStatus = parseGroqRateLimitHeaders(
+        response.headers,
+        "transcription",
+      );
+      if (rateLimitStatus) {
+        groqRateLimitCache.update(rateLimitStatus);
+      }
+    }
 
     const duration = performance.now() - startedAt;
     let body: OpenAICompatibleTranscriptionResponse | null = null;

@@ -52,6 +52,11 @@ import {
   isAmicalCloudSelectionValue,
   resolveStoredModelSelectionValue,
 } from "../utils/model-selection";
+import { groqRateLimitCache } from "./groq-rate-limit-cache";
+import {
+  parseGroqRateLimitHeaders,
+  type GroqRateLimitStatus,
+} from "../utils/groq-rate-limit";
 
 // Type for models fetched from external APIs
 type FetchedModel = Pick<
@@ -1045,6 +1050,28 @@ class ModelService extends EventEmitter {
   }
 
   /**
+   * Refresh cached Groq rate limit status using a lightweight GET /models call.
+   */
+  async refreshGroqRateLimit(): Promise<GroqRateLimitStatus | null> {
+    const groqConfig = await this.settingsService.getGroqConfig();
+    if (!groqConfig?.apiKey) {
+      return null;
+    }
+
+    const baseURL = normalizeOpenAICompatibleBaseURL(
+      groqConfig.baseURL || "https://api.groq.com/openai/v1",
+    );
+    const response = await this.fetchGroqModels(groqConfig.apiKey, baseURL);
+    this.cacheGroqRateLimitFromResponse(response, "refresh");
+
+    if (!response.ok) {
+      throw new Error(await extractProviderErrorMessage(response));
+    }
+
+    return groqRateLimitCache.get();
+  }
+
+  /**
    * Aqua currently exposes transcription endpoints without a guaranteed models
    * listing endpoint, so validation only checks that the config is present.
    * Auth or network errors surface on the first transcription request.
@@ -1066,15 +1093,8 @@ class ModelService extends EventEmitter {
   ): Promise<ValidationResult> {
     const normalizedBaseURL = normalizeOpenAICompatibleBaseURL(baseURL);
     try {
-      const response = await fetch(`${normalizedBaseURL}/models`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "User-Agent": getUserAgent(),
-        },
-        signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
-      });
+      const response = await this.fetchGroqModels(apiKey, normalizedBaseURL);
+      this.cacheGroqRateLimitFromResponse(response, "models");
 
       if (!response.ok) {
         return {
@@ -1089,6 +1109,31 @@ class ModelService extends EventEmitter {
         success: false,
         error: formatProviderRequestError(error),
       };
+    }
+  }
+
+  private async fetchGroqModels(
+    apiKey: string,
+    baseURL: string,
+  ): Promise<Response> {
+    return fetch(`${baseURL}/models`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "User-Agent": getUserAgent(),
+      },
+      signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
+    });
+  }
+
+  private cacheGroqRateLimitFromResponse(
+    response: Response,
+    source: "models" | "refresh",
+  ): void {
+    const status = parseGroqRateLimitHeaders(response.headers, source);
+    if (status) {
+      groqRateLimitCache.update(status);
     }
   }
 

@@ -115,6 +115,8 @@ Aqua は OpenAI 互換の文字起こしフローを使用し、デフォルト�
 
 デスクトップパッケージは `apps/desktop/package.json` で `Amical remake` として設定されています。
 
+ローカルで再ビルドしたインストール版を `/Applications` に入れ替えるときは、古いアプリの残存、Spotlight/Raycast の重複表示、macOS アクセシビリティ権限の不整合を防ぐため、[`docs/local-macos-desktop-install.md`](./local-macos-desktop-install.md) の手順を使う。
+
 関連するローカルパッケージングの変更:
 
 - 製品メタデータと author フィールドに `Amical remake` ラベルを使用。

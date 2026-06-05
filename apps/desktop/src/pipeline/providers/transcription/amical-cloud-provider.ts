@@ -11,7 +11,10 @@ import {
   getAmicalClientInfo,
   getUserAgent,
 } from "../../../utils/http-client";
-import { detectApplicationType } from "../formatting/formatter-prompt";
+import {
+  detectApplicationType,
+  shouldIncludeSurroundingTextContext,
+} from "../formatting/formatter-prompt";
 import type { GetAccessibilityContextResult } from "@amical/types";
 import {
   AppError,
@@ -117,11 +120,16 @@ const projectAccessibilityContext = (
   if (!ctx) {
     return undefined;
   }
+  const includeSurroundingText = shouldIncludeSurroundingTextContext(ctx);
 
   return {
     selectedText: ctx.context?.textSelection?.selectedText ?? undefined,
-    beforeText: ctx.context?.textSelection?.preSelectionText ?? undefined,
-    afterText: ctx.context?.textSelection?.postSelectionText ?? undefined,
+    beforeText: includeSurroundingText
+      ? (ctx.context?.textSelection?.preSelectionText ?? undefined)
+      : undefined,
+    afterText: includeSurroundingText
+      ? (ctx.context?.textSelection?.postSelectionText ?? undefined)
+      : undefined,
     appType: detectApplicationType(ctx),
     appBundleId: ctx.context?.application?.bundleIdentifier ?? undefined,
     appName: ctx.context?.application?.name ?? undefined,

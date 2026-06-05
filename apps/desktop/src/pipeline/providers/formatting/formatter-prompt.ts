@@ -279,10 +279,14 @@ export function constructFormatterPrompt(context: FormatParams["context"]): {
   const { accessibilityContext, vocabulary } = context;
 
   const appType = detectApplicationType(accessibilityContext);
-  const beforeText =
-    accessibilityContext?.context?.textSelection?.preSelectionText;
-  const afterText =
-    accessibilityContext?.context?.textSelection?.postSelectionText;
+  const includeSurroundingText =
+    shouldIncludeSurroundingTextContext(accessibilityContext);
+  const beforeText = includeSurroundingText
+    ? accessibilityContext?.context?.textSelection?.preSelectionText
+    : undefined;
+  const afterText = includeSurroundingText
+    ? accessibilityContext?.context?.textSelection?.postSelectionText
+    : undefined;
 
   return buildFormattingPrompt({
     appType,
@@ -322,6 +326,26 @@ const BROWSER_BUNDLE_IDS = [
   "com.operasoftware.Opera",
   "com.vivaldi.Vivaldi",
 ];
+
+const UNRELIABLE_SURROUNDING_TEXT_BUNDLE_PREFIXES = [
+  "com.openai.codex",
+  "com.openai.chat",
+  "com.openai.chatgpt",
+];
+
+export function shouldIncludeSurroundingTextContext(
+  accessibilityContext: GetAccessibilityContextResult | null | undefined,
+): boolean {
+  const bundleId =
+    accessibilityContext?.context?.application?.bundleIdentifier?.toLowerCase();
+  if (!bundleId) {
+    return true;
+  }
+
+  return !UNRELIABLE_SURROUNDING_TEXT_BUNDLE_PREFIXES.some((prefix) =>
+    bundleId.startsWith(prefix),
+  );
+}
 
 // URL patterns for web applications (general has no patterns, falls through)
 const URL_PATTERNS: Partial<Record<AppType, RegExp[]>> = {

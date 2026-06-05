@@ -85,7 +85,7 @@ class AccessibilityService {
         }
 
         guard let bundleIdentifier = bundleIdentifier?.lowercased() else {
-            return false
+            return true
         }
 
         let excludedBundlePrefixes = [
@@ -105,7 +105,18 @@ class AccessibilityService {
             return true
         }
 
-        return bundleIdentifier.contains("electron")
+        if bundleIdentifier.contains("electron") {
+            return true
+        }
+
+        let allowedNativeBundlePrefixes = [
+            "com.apple.notes",
+            "com.apple.textedit",
+        ]
+
+        return !allowedNativeBundlePrefixes.contains(where: {
+            bundleIdentifier.hasPrefix($0)
+        })
     }
 
     private func tryDirectAXInsert(transcript: String) -> Bool {
@@ -124,7 +135,11 @@ class AccessibilityService {
         let element = focusResult.element
         let role = AXHelpers.getStringAttribute(element, kAXRoleAttribute)
         if shouldSkipDirectAXInsert(bundleIdentifier: frontmostApp.bundleIdentifier, role: role) {
-            logToStderr("[AccessibilityService] Direct AX insert skipped: unsupported app or role.")
+            let bundleIdentifier = frontmostApp.bundleIdentifier ?? "unknown"
+            let roleDescription = role ?? "unknown"
+            logToStderr(
+                "[AccessibilityService] Direct AX insert skipped: unsupported app or role (bundle: \(bundleIdentifier), role: \(roleDescription))."
+            )
             return false
         }
 

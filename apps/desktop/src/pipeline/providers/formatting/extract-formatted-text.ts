@@ -10,6 +10,12 @@ export type ExtractionResult = {
   reason?: ExtractionFailureReason;
 };
 
+function stripStructuralTagLineBreaks(text: string): string {
+  return text
+    .replace(/^(?:[ \t]*[\r\n]+)+/, "")
+    .replace(/(?:[\r\n]+[ \t]*)+$/, "");
+}
+
 /**
  * Extract formatted text from LLM response with safety fallback.
  * If extraction fails (malformed tags, empty content, etc.), returns original text.
@@ -39,5 +45,5 @@ export function extractFormattedText(
     };
   }
 
-  return { text: extracted, usedFallback: false };
+  return { text: stripStructuralTagLineBreaks(extracted), usedFallback: false };
 }

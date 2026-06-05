@@ -4,6 +4,7 @@ import { constructFormatterPrompt } from "./formatter-prompt";
 import { extractFormattedText } from "./extract-formatted-text";
 import { normalizeOllamaUrl } from "../../../utils/provider-utils";
 import { getUserAgent } from "../../../utils/http-client";
+import { calculateFormattingMaxTokens } from "../../utils/latency-limits";
 
 export class OllamaFormatter implements FormattingProvider {
   readonly name = "ollama";
@@ -29,7 +30,7 @@ export class OllamaFormatter implements FormattingProvider {
         stream: false,
         options: {
           temperature: 0.1,
-          num_predict: 5000,
+          num_predict: calculateFormattingMaxTokens(text.length),
         },
         messages: [
           { role: "system", content: systemPrompt },
@@ -46,6 +47,7 @@ export class OllamaFormatter implements FormattingProvider {
           "Content-Type": "application/json",
           "User-Agent": getUserAgent(),
         },
+        signal: params.signal,
         body: JSON.stringify({
           model: requestPayload.model,
           messages: requestPayload.messages,

@@ -40,8 +40,25 @@ export interface HistorySettings {
 }
 
 export class SettingsService extends EventEmitter {
+  private preferencesCache: AppPreferences | null = null;
+
   constructor() {
     super();
+  }
+
+  private normalizePreferences(
+    preferences: AppSettingsData["preferences"] | undefined,
+  ): AppPreferences {
+    return {
+      launchAtLogin: preferences?.launchAtLogin ?? true,
+      minimizeToTray: preferences?.minimizeToTray ?? true,
+      showWidgetWhileInactive: preferences?.showWidgetWhileInactive ?? true,
+      showInDock: preferences?.showInDock ?? true,
+      muteSystemAudio: preferences?.muteSystemAudio ?? true,
+      muteDictationSounds: preferences?.muteDictationSounds ?? false,
+      autoDictateOnNewNote: preferences?.autoDictateOnNewNote ?? false,
+      preserveClipboard: preferences?.preserveClipboard ?? true,
+    };
   }
 
   /**
@@ -72,7 +89,13 @@ export class SettingsService extends EventEmitter {
   async updateSettings(
     settings: Partial<AppSettingsData>,
   ): Promise<AppSettingsData> {
-    return await updateAppSettings(settings);
+    const updatedSettings = await updateAppSettings(settings);
+    if (settings.preferences) {
+      this.preferencesCache = this.normalizePreferences(
+        updatedSettings.preferences,
+      );
+    }
+    return updatedSettings;
   }
 
   /**
@@ -423,17 +446,13 @@ export class SettingsService extends EventEmitter {
    * Get app preferences (launch at login, minimize to tray, etc.)
    */
   async getPreferences(): Promise<AppPreferences> {
+    if (this.preferencesCache) {
+      return this.preferencesCache;
+    }
+
     const preferences = await getSettingsSection("preferences");
-    return {
-      launchAtLogin: preferences?.launchAtLogin ?? true,
-      minimizeToTray: preferences?.minimizeToTray ?? true,
-      showWidgetWhileInactive: preferences?.showWidgetWhileInactive ?? true,
-      showInDock: preferences?.showInDock ?? true,
-      muteSystemAudio: preferences?.muteSystemAudio ?? true,
-      muteDictationSounds: preferences?.muteDictationSounds ?? false,
-      autoDictateOnNewNote: preferences?.autoDictateOnNewNote ?? false,
-      preserveClipboard: preferences?.preserveClipboard ?? true,
-    };
+    this.preferencesCache = this.normalizePreferences(preferences);
+    return this.preferencesCache;
   }
 
   /**
@@ -445,6 +464,7 @@ export class SettingsService extends EventEmitter {
 
     // Save to database
     await updateSettingsSection("preferences", newPreferences);
+    this.preferencesCache = this.normalizePreferences(newPreferences);
 
     // Handle launch at login change
     if (

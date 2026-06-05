@@ -3,6 +3,7 @@ import { logger } from "../../../main/logger";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { constructFormatterPrompt } from "./formatter-prompt";
 import { extractFormattedText } from "./extract-formatted-text";
+import { calculateFormattingMaxTokens } from "../../utils/latency-limits";
 
 import { CoreMessage, generateText } from "ai";
 import { getUserAgent } from "../../../utils/http-client";
@@ -51,7 +52,7 @@ export class OpenRouterProvider implements FormattingProvider {
         endpoint: this.endpoint,
         model: this.model,
         temperature: 0.1,
-        maxTokens: 5000,
+        maxTokens: calculateFormattingMaxTokens(text.length),
         messages,
       };
 
@@ -62,6 +63,8 @@ export class OpenRouterProvider implements FormattingProvider {
         messages: requestPayload.messages,
         temperature: requestPayload.temperature,
         maxTokens: requestPayload.maxTokens,
+        maxRetries: 0,
+        abortSignal: params.signal,
       });
 
       logger.pipeline.debug("Formatting LLM raw response", {

@@ -79,6 +79,112 @@ class AccessibilityService {
         return nil
     }
 
+    private func shouldSkipDirectAXInsert(bundleIdentifier: String?, role: String?) -> Bool {
+        if role == "AXWebArea" {
+            return true
+        }
+
+        guard let bundleIdentifier = bundleIdentifier?.lowercased() else {
+            return false
+        }
+
+        let excludedBundlePrefixes = [
+            "ai.perplexity.comet",
+            "com.apple.safari",
+            "com.brave.browser",
+            "com.discord",
+            "com.google.chrome",
+            "com.microsoft.edgemac",
+            "com.microsoft.teams",
+            "com.tinyspeck.slackmacgap",
+            "com.vivaldi",
+            "org.mozilla.firefox",
+        ]
+
+        if excludedBundlePrefixes.contains(where: { bundleIdentifier.hasPrefix($0) }) {
+            return true
+        }
+
+        return bundleIdentifier.contains("electron")
+    }
+
+    private func tryDirectAXInsert(transcript: String) -> Bool {
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+            logToStderr("[AccessibilityService] Direct AX insert skipped: no frontmost app.")
+            return false
+        }
+
+        guard let focusedElement = FocusService.getFocusedElement(pid: frontmostApp.processIdentifier),
+            let focusResult = FocusService.findTextCapableElement(from: focusedElement, editableOnly: true)
+        else {
+            logToStderr("[AccessibilityService] Direct AX insert skipped: no editable focused element.")
+            return false
+        }
+
+        let element = focusResult.element
+        let role = AXHelpers.getStringAttribute(element, kAXRoleAttribute)
+        if shouldSkipDirectAXInsert(bundleIdentifier: frontmostApp.bundleIdentifier, role: role) {
+            logToStderr("[AccessibilityService] Direct AX insert skipped: unsupported app or role.")
+            return false
+        }
+
+        guard AXHelpers.isElementEditable(element), !AXHelpers.isSecureField(element) else {
+            logToStderr("[AccessibilityService] Direct AX insert skipped: element not editable or secure.")
+            return false
+        }
+
+        guard AXHelpers.hasAttribute(element, kAXValueAttribute),
+            AXHelpers.hasAttribute(element, kAXSelectedTextRangeAttribute),
+            let currentValue = AXHelpers.getStringAttribute(element, kAXValueAttribute),
+            let selectedRange = AXHelpers.getSelectedTextRange(element)
+        else {
+            logToStderr("[AccessibilityService] Direct AX insert skipped: missing AXValue or selection range.")
+            return false
+        }
+
+        let currentNSString = currentValue as NSString
+        guard selectedRange.location >= 0,
+            selectedRange.length >= 0,
+            selectedRange.location + selectedRange.length <= currentNSString.length
+        else {
+            logToStderr("[AccessibilityService] Direct AX insert skipped: invalid selection range.")
+            return false
+        }
+
+        let replacementRange = NSRange(location: selectedRange.location, length: selectedRange.length)
+        let newValue = currentNSString.replacingCharacters(in: replacementRange, with: transcript)
+
+        let setValueError = AXUIElementSetAttributeValue(
+            element,
+            kAXValueAttribute as CFString,
+            newValue as CFString
+        )
+        guard setValueError == .success else {
+            logToStderr("[AccessibilityService] Direct AX insert failed: AXValue set error \(setValueError.rawValue).")
+            return false
+        }
+
+        var newCursorRange = CFRange(
+            location: selectedRange.location + (transcript as NSString).length,
+            length: 0
+        )
+        if let newCursorValue = AXValueCreate(.cfRange, &newCursorRange) {
+            let setSelectionError = AXUIElementSetAttributeValue(
+                element,
+                kAXSelectedTextRangeAttribute as CFString,
+                newCursorValue
+            )
+            if setSelectionError != .success {
+                logToStderr(
+                    "[AccessibilityService] Direct AX insert selection update failed: \(setSelectionError.rawValue)."
+                )
+            }
+        }
+
+        logToStderr("[AccessibilityService] Direct AX insert succeeded.")
+        return true
+    }
+
     // MARK: - Audio Control Helpers
     private func getDefaultOutputDeviceID() -> AudioDeviceID? {
         var deviceID: AudioDeviceID = kAudioObjectUnknown
@@ -450,12 +556,16 @@ class AccessibilityService {
     public func pasteText(transcript: String, preserveClipboard: Bool = true) -> Bool {
         logToStderr("[AccessibilityService] Attempting to paste transcript: \(transcript).")
 
+        if tryDirectAXInsert(transcript: transcript) {
+            return true
+        }
+
         let pasteboard = NSPasteboard.general
         let originalPasteboardItems =
             pasteboard.pasteboardItems?.compactMap { item -> NSPasteboardItem? in
                 let newItem = NSPasteboardItem()
                 var hasData = false
-                for type in item.types ?? [] {
+                for type in item.types {
                     if let data = item.data(forType: type) {
                         newItem.setData(data, forType: type)
                         hasData = true

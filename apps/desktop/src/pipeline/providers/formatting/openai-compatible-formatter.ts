@@ -5,6 +5,7 @@ import { logger } from "../../../main/logger";
 import { getUserAgent } from "../../../utils/http-client";
 import { extractFormattedText } from "./extract-formatted-text";
 import { constructFormatterPrompt } from "./formatter-prompt";
+import { calculateFormattingMaxTokens } from "../../utils/latency-limits";
 
 export class OpenAICompatibleFormatter implements FormattingProvider {
   readonly name = "openai-compatible";
@@ -49,7 +50,7 @@ export class OpenAICompatibleFormatter implements FormattingProvider {
         endpoint: `${this.baseURL}/chat/completions`,
         model: this.model,
         temperature: 0.1,
-        maxTokens: 5000,
+        maxTokens: calculateFormattingMaxTokens(text.length),
         messages,
       };
 
@@ -60,6 +61,8 @@ export class OpenAICompatibleFormatter implements FormattingProvider {
         messages: requestPayload.messages,
         temperature: requestPayload.temperature,
         maxTokens: requestPayload.maxTokens,
+        maxRetries: 0,
+        abortSignal: params.signal,
       });
 
       logger.pipeline.debug("Formatting LLM raw response", {

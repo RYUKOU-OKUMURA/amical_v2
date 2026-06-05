@@ -45,6 +45,15 @@ import {
   applyTranscriptionCleanupIfEnabled,
   shouldPreservePunctuatedTranscript,
 } from "../pipeline/utils/transcription-cleanup";
+import {
+  DeadlineTimeoutError,
+  FORMATTER_TIMEOUT_MS,
+  GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS,
+  GROQ_LONG_FORM_FINAL_PASS_MIN_RAW_LENGTH,
+  GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS,
+  runWithDeadline,
+  shouldRunGroqLongFormFinalPass as shouldRunGroqLongFormFinalPassByPolicy,
+} from "../pipeline/utils/latency-limits";
 
 interface CompletedTranscriptionPersistenceJob {
   sessionId: string;
@@ -69,8 +78,6 @@ interface CompletedTranscriptionPersistenceJob {
 
 const AUDIO_FRAME_SIZE = 512;
 const AUDIO_SAMPLE_RATE = 16000;
-const GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS = 12_000;
-const GROQ_LONG_FORM_FINAL_PASS_MIN_CHUNKS = 3;
 const MIN_ACCEPTABLE_FINAL_PASS_LENGTH_RATIO = 0.45;
 
 /**
@@ -724,27 +731,23 @@ export class TranscriptionService {
     provider: TranscriptionProvider | null;
     audioFilePath?: string;
     session: StreamingSession;
+    rawTranscription: string;
   }): boolean {
-    const { provider, audioFilePath, session } = options;
-    if (
-      provider?.name !== "groq" ||
-      typeof provider.transcribeFullAudio !== "function" ||
-      !audioFilePath
-    ) {
-      return false;
-    }
+    const { provider, audioFilePath, session, rawTranscription } = options;
 
     const recordingDurationMs =
       session.recordingStartedAt && session.recordingStoppedAt
         ? session.recordingStoppedAt - session.recordingStartedAt
         : undefined;
 
-    return (
-      session.transcriptionResults.length >=
-        GROQ_LONG_FORM_FINAL_PASS_MIN_CHUNKS ||
-      (typeof recordingDurationMs === "number" &&
-        recordingDurationMs >= GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS)
-    );
+    return shouldRunGroqLongFormFinalPassByPolicy({
+      providerName: provider?.name,
+      hasTranscribeFullAudio:
+        typeof provider?.transcribeFullAudio === "function",
+      hasAudioFile: Boolean(audioFilePath),
+      rawTranscriptionLength: rawTranscription.trim().length,
+      recordingDurationMs,
+    });
   }
 
   private async runGroqLongFormFinalPass(options: {
@@ -759,6 +762,7 @@ export class TranscriptionService {
         provider,
         audioFilePath,
         session,
+        rawTranscription,
       }) ||
       !provider?.transcribeFullAudio ||
       !audioFilePath
@@ -770,24 +774,31 @@ export class TranscriptionService {
       const audioData = await this.readWavAsFloat32(audioFilePath);
       const audioDurationMs = (audioData.length / AUDIO_SAMPLE_RATE) * 1000;
       if (
-        session.transcriptionResults.length <
-          GROQ_LONG_FORM_FINAL_PASS_MIN_CHUNKS &&
+        rawTranscription.trim().length <
+          GROQ_LONG_FORM_FINAL_PASS_MIN_RAW_LENGTH &&
         audioDurationMs < GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS
       ) {
         return null;
       }
 
-      const speechProbabilities =
-        await this.computeVadProbabilitiesForAudio(audioData);
-      const result = await provider.transcribeFullAudio({
-        audioData,
-        speechProbabilities,
-        context: {
-          sessionId: session.context.sessionId,
-          vocabulary: session.context.sharedData.vocabulary,
-          accessibilityContext: session.context.sharedData.accessibilityContext,
-          language: session.context.sharedData.userPreferences?.language,
-          formattingEnabled: false,
+      const result = await runWithDeadline({
+        label: "Groq long-form final pass",
+        timeoutMs: GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS,
+        operation: async (signal) => {
+          const speechProbabilities =
+            await this.computeVadProbabilitiesForAudio(audioData, signal);
+          return provider.transcribeFullAudio!({
+            audioData,
+            speechProbabilities,
+            context: {
+              sessionId: session.context.sessionId,
+              vocabulary: session.context.sharedData.vocabulary,
+              accessibilityContext:
+                session.context.sharedData.accessibilityContext,
+              language: session.context.sharedData.userPreferences?.language,
+              formattingEnabled: false,
+            },
+          });
         },
       });
 
@@ -1048,14 +1059,20 @@ export class TranscriptionService {
     const startTime = performance.now();
 
     try {
-      const formattedText = await provider.format({
-        text,
-        context: {
-          style: context.style,
-          vocabulary: context.vocabulary,
-          accessibilityContext: context.accessibilityContext,
-          aggregatedTranscription: text,
-        },
+      const formattedText = await runWithDeadline({
+        label: "Formatting",
+        timeoutMs: FORMATTER_TIMEOUT_MS,
+        operation: (signal) =>
+          provider.format({
+            text,
+            signal,
+            context: {
+              style: context.style,
+              vocabulary: context.vocabulary,
+              accessibilityContext: context.accessibilityContext,
+              aggregatedTranscription: text,
+            },
+          }),
       });
 
       const duration = performance.now() - startTime;
@@ -1068,9 +1085,25 @@ export class TranscriptionService {
 
       return { text: formattedText, duration };
     } catch (error) {
-      logger.transcription.error("Formatting failed, using unformatted text", {
+      const logPayload = {
         error,
-      });
+        timeoutMs:
+          error instanceof DeadlineTimeoutError ? error.timeoutMs : undefined,
+      };
+
+      if (error instanceof DeadlineTimeoutError) {
+        logger.transcription.warn(
+          "Formatting timed out, using unformatted text",
+          logPayload,
+        );
+      } else {
+        logger.transcription.error(
+          "Formatting failed, using unformatted text",
+          {
+            error,
+          },
+        );
+      }
       return null;
     }
   }
@@ -1255,6 +1288,7 @@ export class TranscriptionService {
 
   private async computeVadProbabilitiesForAudio(
     audioData: Float32Array,
+    signal?: AbortSignal,
   ): Promise<number[]> {
     const frames = this.splitAudioFrames(audioData);
     if (!this.vadService) {
@@ -1265,6 +1299,12 @@ export class TranscriptionService {
     await this.vadMutex.runExclusive(async () => {
       this.vadService!.reset();
       for (const frame of frames) {
+        if (signal?.aborted) {
+          throw new DeadlineTimeoutError(
+            "Groq long-form final pass VAD",
+            GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS,
+          );
+        }
         const result = await this.vadService!.processAudioFrame(frame);
         vadProbs.push(result.probability);
       }

@@ -19,6 +19,11 @@ import Foundation
 /// active layout has no Latin character to match.
 enum KeyboardLayoutResolver {
     private static let cmdKeyState = UInt32((cmdKey >> 8) & 0xFF)
+    private struct CacheKey: Hashable {
+        let inputSourceID: String
+        let character: String
+    }
+    private static var keycodeCache: [CacheKey: CGKeyCode] = [:]
 
     static func keycode(for character: Character) -> CGKeyCode? {
         let providers: [() -> Unmanaged<TISInputSource>?] = [
@@ -27,11 +32,29 @@ enum KeyboardLayoutResolver {
         ]
         for provider in providers {
             guard let source = provider()?.takeRetainedValue() else { continue }
-            if let kc = keycode(for: character, source: source) {
+            let normalizedCharacter = String(character).lowercased()
+            if let inputSourceID = inputSourceID(for: source) {
+                let cacheKey = CacheKey(inputSourceID: inputSourceID, character: normalizedCharacter)
+                if let cachedKeycode = keycodeCache[cacheKey] {
+                    return cachedKeycode
+                }
+                if let kc = keycode(for: character, source: source) {
+                    keycodeCache[cacheKey] = kc
+                    return kc
+                }
+            } else if let kc = keycode(for: character, source: source) {
                 return kc
             }
         }
         return nil
+    }
+
+    private static func inputSourceID(for source: TISInputSource) -> String? {
+        guard let sourceIDPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else {
+            return nil
+        }
+        let sourceID = Unmanaged<CFString>.fromOpaque(sourceIDPointer).takeUnretainedValue()
+        return sourceID as String
     }
 
     private static func keycode(for character: Character, source: TISInputSource) -> CGKeyCode? {

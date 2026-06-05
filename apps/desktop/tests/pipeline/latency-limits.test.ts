@@ -1,0 +1,87 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  DeadlineTimeoutError,
+  calculateFormattingMaxTokens,
+  runWithDeadline,
+  shouldRunGroqLongFormFinalPass,
+} from "../../src/pipeline/utils/latency-limits";
+
+describe("latency limits", () => {
+  it("calculates bounded formatting output token limits", () => {
+    expect(calculateFormattingMaxTokens(2)).toBe(384);
+    expect(calculateFormattingMaxTokens(1_000)).toBe(1_056);
+    expect(calculateFormattingMaxTokens(10_000)).toBe(3_000);
+  });
+
+  it("resolves operations that finish before the deadline", async () => {
+    await expect(
+      runWithDeadline({
+        label: "test",
+        timeoutMs: 100,
+        operation: async () => "ok",
+      }),
+    ).resolves.toBe("ok");
+  });
+
+  it("aborts and rejects operations that exceed the deadline", async () => {
+    vi.useFakeTimers();
+    let observedSignal: AbortSignal | null = null;
+    const promise = runWithDeadline({
+      label: "slow-test",
+      timeoutMs: 2_000,
+      operation: (signal) => {
+        observedSignal = signal;
+        return new Promise<string>(() => {});
+      },
+    });
+    const assertion =
+      expect(promise).rejects.toBeInstanceOf(DeadlineTimeoutError);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await assertion;
+    expect(observedSignal?.aborted).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("runs Groq final pass only for eligible long-form sessions", () => {
+    const baseOptions = {
+      providerName: "groq",
+      hasTranscribeFullAudio: true,
+      hasAudioFile: true,
+    };
+
+    expect(
+      shouldRunGroqLongFormFinalPass({
+        ...baseOptions,
+        rawTranscriptionLength: 40,
+        recordingDurationMs: 8_000,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldRunGroqLongFormFinalPass({
+        ...baseOptions,
+        rawTranscriptionLength: 40,
+        recordingDurationMs: 12_000,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldRunGroqLongFormFinalPass({
+        ...baseOptions,
+        rawTranscriptionLength: 120,
+        recordingDurationMs: 2_000,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldRunGroqLongFormFinalPass({
+        ...baseOptions,
+        providerName: "whisper-local",
+        rawTranscriptionLength: 200,
+        recordingDurationMs: 20_000,
+      }),
+    ).toBe(false);
+  });
+});

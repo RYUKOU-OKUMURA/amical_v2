@@ -39,6 +39,7 @@ export interface TranscriptionOutput {
 // Formatting input parameters
 export interface FormatParams {
   text: string;
+  signal?: AbortSignal;
   context: {
     style?: string;
     vocabulary?: string[];

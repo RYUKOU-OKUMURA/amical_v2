@@ -3,6 +3,23 @@ title: Bring Your Own Key
 description: Use your own API keys for AI models within the app
 ---
 
-<Callout title="Coming soon">This feature is on the roadmap</Callout>
+Amical can use your own API keys for hosted speech providers. This lets you run dictation through providers such as Groq while keeping model selection under your control.
 
-Amical will soon support using your own API keys for AI models, giving you more control over your transcription service.
+## Groq Speech API
+
+Groq speech transcription is configured from:
+
+`Settings -> AI Models -> Speech`
+
+Add your Groq API key, then choose one of the Groq speech models:
+
+- `groq-whisper-large-v3-turbo`
+- `groq-whisper-large-v3`
+
+Amical validates the key against Groq before saving the provider configuration. Groq requests use the OpenAI-compatible `/audio/transcriptions` endpoint at `https://api.groq.com/openai/v1` by default.
+
+## Dictation Modes
+
+Push-to-talk uses a low-latency profile so short dictation appears quickly.
+
+Hands-free dictation uses a long-form profile for Groq speech models. It waits for longer chunks, tolerates thinking pauses better, and may run a final full-audio Groq pass when the recording is long enough.

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   DeadlineTimeoutError,
+  GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS,
   calculateFormattingMaxTokens,
   runWithDeadline,
   shouldRunGroqLongFormFinalPass,
@@ -11,6 +12,10 @@ describe("latency limits", () => {
     expect(calculateFormattingMaxTokens(2)).toBe(384);
     expect(calculateFormattingMaxTokens(1_000)).toBe(1_056);
     expect(calculateFormattingMaxTokens(10_000)).toBe(3_000);
+  });
+
+  it("allows Groq long-form final pass to wait up to ten seconds", () => {
+    expect(GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS).toBe(10_000);
   });
 
   it("resolves operations that finish before the deadline", async () => {

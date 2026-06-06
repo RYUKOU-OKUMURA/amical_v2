@@ -4,6 +4,7 @@ import {
   StreamingSession,
   TranscriptionProvider,
   FormattingProvider,
+  DictationProfile,
 } from "../pipeline/core/pipeline-types";
 import { createDefaultContext } from "../pipeline/core/context";
 import { WhisperProvider } from "../pipeline/providers/transcription/whisper-provider";
@@ -43,6 +44,8 @@ import {
 import { countWords } from "../utils/dictation-stats";
 import {
   applyTranscriptionCleanupIfEnabled,
+  applyLongFormTranscriptionCleanup,
+  applyLongFormPromptCleanup,
   shouldPreservePunctuatedTranscript,
 } from "../pipeline/utils/transcription-cleanup";
 import {
@@ -345,8 +348,14 @@ export class TranscriptionService {
     sessionId: string;
     audioChunk: Float32Array;
     recordingStartedAt?: number;
+    dictationProfile?: DictationProfile;
   }): Promise<string> {
-    const { sessionId, audioChunk, recordingStartedAt } = options;
+    const {
+      sessionId,
+      audioChunk,
+      recordingStartedAt,
+      dictationProfile = "low-latency",
+    } = options;
 
     // Run VAD on the audio chunk
     let speechProbability = this.vadService ? 0 : 1;
@@ -413,23 +422,35 @@ export class TranscriptionService {
           transcriptionResults: [],
           firstChunkReceivedAt: performance.now(),
           recordingStartedAt: recordingStartedAt,
+          dictationProfile,
         };
 
         this.streamingSessions.set(sessionId, session);
 
         logger.transcription.info("Started streaming session", {
           sessionId,
+          dictationProfile,
         });
       }
 
+      const activeProfile = this.updateSessionDictationProfile(
+        session,
+        dictationProfile,
+      );
+
       // Direct frame to Whisper - it will handle aggregation and VAD internally
-      const previousChunk =
+      const previousChunk = this.preparePromptContext(
         session.transcriptionResults.length > 0
           ? session.transcriptionResults[
               session.transcriptionResults.length - 1
             ]
-          : undefined;
-      const aggregatedTranscription = session.transcriptionResults.join("");
+          : undefined,
+        activeProfile,
+      );
+      const aggregatedTranscription = this.preparePromptContext(
+        session.transcriptionResults.join(""),
+        activeProfile,
+      );
 
       // Select the appropriate provider
       const provider = await this.selectProvider();
@@ -443,10 +464,11 @@ export class TranscriptionService {
           vocabulary: session.context.sharedData.vocabulary,
           accessibilityContext: session.context.sharedData.accessibilityContext,
           previousChunk,
-          aggregatedTranscription: aggregatedTranscription || undefined,
+          aggregatedTranscription,
           language: session.context.sharedData.userPreferences?.language,
           formattingEnabled:
             session.context.metadata.get("cloudFormattingEnabled") === true,
+          dictationProfile: activeProfile,
         },
       });
       session.detectedLanguage = this.mergeDetectedLanguage(
@@ -493,6 +515,7 @@ export class TranscriptionService {
       language:
         session.detectedLanguage ??
         session.context.sharedData.userPreferences?.language,
+      dictationProfile: session.dictationProfile ?? "low-latency",
     });
   }
 
@@ -525,9 +548,15 @@ export class TranscriptionService {
     audioFilePath?: string;
     recordingStartedAt?: number;
     recordingStoppedAt?: number;
+    dictationProfile?: DictationProfile;
   }): Promise<string> {
-    const { sessionId, audioFilePath, recordingStartedAt, recordingStoppedAt } =
-      options;
+    const {
+      sessionId,
+      audioFilePath,
+      recordingStartedAt,
+      recordingStoppedAt,
+      dictationProfile = "low-latency",
+    } = options;
 
     const session = this.streamingSessions.get(sessionId);
     if (!session) {
@@ -542,6 +571,10 @@ export class TranscriptionService {
       if (recordingStartedAt && !session.recordingStartedAt) {
         session.recordingStartedAt = recordingStartedAt;
       }
+      const activeProfile = this.updateSessionDictationProfile(
+        session,
+        dictationProfile,
+      );
 
       const formatterConfig = await this.settingsService.getFormatterConfig();
       const shouldUseCloudFormatting =
@@ -553,13 +586,18 @@ export class TranscriptionService {
       // Flush provider to get any remaining buffered audio
       await this.transcriptionMutex.acquire();
       try {
-        const previousChunk =
+        const previousChunk = this.preparePromptContext(
           session.transcriptionResults.length > 0
             ? session.transcriptionResults[
                 session.transcriptionResults.length - 1
               ]
-            : undefined;
-        const aggregatedTranscription = session.transcriptionResults.join("");
+            : undefined,
+          activeProfile,
+        );
+        const aggregatedTranscription = this.preparePromptContext(
+          session.transcriptionResults.join(""),
+          activeProfile,
+        );
 
         const provider = await this.selectProvider();
         providerForFinalPass = provider;
@@ -569,9 +607,10 @@ export class TranscriptionService {
           vocabulary: session.context.sharedData.vocabulary,
           accessibilityContext: session.context.sharedData.accessibilityContext,
           previousChunk,
-          aggregatedTranscription: aggregatedTranscription || undefined,
+          aggregatedTranscription,
           language: session.context.sharedData.userPreferences?.language,
           formattingEnabled: shouldUseCloudFormatting && usedCloudProvider,
+          dictationProfile: activeProfile,
         });
         session.detectedLanguage = this.mergeDetectedLanguage(
           session.detectedLanguage,
@@ -594,7 +633,10 @@ export class TranscriptionService {
         this.transcriptionMutex.release();
       }
 
-      let rawTranscription = session.transcriptionResults.join("");
+      let rawTranscription = this.cleanupForDictationProfile(
+        session.transcriptionResults.join(""),
+        activeProfile,
+      );
       const longFormFinalPassText = await this.runGroqLongFormFinalPass({
         provider: providerForFinalPass,
         session,
@@ -602,7 +644,10 @@ export class TranscriptionService {
         rawTranscription,
       });
       if (longFormFinalPassText) {
-        rawTranscription = longFormFinalPassText;
+        rawTranscription = this.cleanupForDictationProfile(
+          longFormFinalPassText,
+          activeProfile,
+        );
       }
 
       // Apply simple pre-formatting for local models (handles Whisper leading space artifact)
@@ -637,6 +682,7 @@ export class TranscriptionService {
         requestedLanguage,
         formattingStyle:
           session.context.sharedData.userPreferences?.formattingStyle,
+        dictationProfile: activeProfile,
       });
       const completeTranscription = formatResult.text;
       const transcriptionWordCount = countWords(
@@ -735,6 +781,10 @@ export class TranscriptionService {
   }): boolean {
     const { provider, audioFilePath, session, rawTranscription } = options;
 
+    if (session.dictationProfile !== "long-form") {
+      return false;
+    }
+
     const recordingDurationMs =
       session.recordingStartedAt && session.recordingStoppedAt
         ? session.recordingStoppedAt - session.recordingStartedAt
@@ -790,6 +840,7 @@ export class TranscriptionService {
           return provider.transcribeFullAudio!({
             audioData,
             speechProbabilities,
+            signal,
             context: {
               sessionId: session.context.sessionId,
               vocabulary: session.context.sharedData.vocabulary,
@@ -797,12 +848,16 @@ export class TranscriptionService {
                 session.context.sharedData.accessibilityContext,
               language: session.context.sharedData.userPreferences?.language,
               formattingEnabled: false,
+              dictationProfile: session.dictationProfile,
             },
           });
         },
       });
 
-      const finalPassText = result.text.trim();
+      const finalPassText = this.cleanupForDictationProfile(
+        result.text.trim(),
+        session.dictationProfile ?? "low-latency",
+      );
       if (!finalPassText) {
         logger.transcription.info(
           "Groq long-form final pass returned empty text; keeping chunk transcript",
@@ -1120,6 +1175,7 @@ export class TranscriptionService {
     replacements: Map<string, string>;
     requestedLanguage?: string;
     formattingStyle?: string;
+    dictationProfile?: DictationProfile;
   }): Promise<{
     text: string;
     textBeforeReplacements: string;
@@ -1216,6 +1272,7 @@ export class TranscriptionService {
       enablePunctuation: transcriptionSettings?.enablePunctuation !== false,
       skipLightweightCleanup: formattingUsed,
       language: options.requestedLanguage,
+      dictationProfile: options.dictationProfile,
     });
     if (cleanedText !== text) {
       logger.transcription.info("Applied lightweight transcription cleanup", {
@@ -1567,6 +1624,43 @@ export class TranscriptionService {
       results.length = 0;
     }
     results.push(newText);
+  }
+
+  private cleanupForDictationProfile(
+    text: string,
+    dictationProfile: DictationProfile,
+  ): string {
+    return dictationProfile === "long-form"
+      ? applyLongFormTranscriptionCleanup(text)
+      : text;
+  }
+
+  private updateSessionDictationProfile(
+    session: StreamingSession,
+    dictationProfile: DictationProfile,
+  ): DictationProfile {
+    if (dictationProfile === "long-form") {
+      session.dictationProfile = "long-form";
+    } else {
+      session.dictationProfile ??= dictationProfile;
+    }
+
+    return session.dictationProfile ?? "low-latency";
+  }
+
+  private preparePromptContext(
+    text: string | undefined,
+    dictationProfile: DictationProfile,
+  ): string | undefined {
+    if (!text) {
+      return undefined;
+    }
+
+    const cleaned =
+      dictationProfile === "long-form"
+        ? applyLongFormPromptCleanup(text)
+        : this.cleanupForDictationProfile(text, dictationProfile);
+    return cleaned.trim() || undefined;
   }
 
   private sanitizeDetectedLanguage(

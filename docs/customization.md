@@ -20,13 +20,13 @@
 
 主なローカル変更のカテゴリ:
 
-| 領域 | 現在のローカル挙動 | 代表的なファイル |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 音声 API プロバイダ | Groq Whisper と Aqua Avalon 1.5 を選択可能な音声モデルとして追加。設定 UI とプロバイダ別 API キー保存に対応。 | `apps/desktop/src/constants/models.ts`, `apps/desktop/src/pipeline/providers/transcription/groq-provider.ts`, `apps/desktop/src/pipeline/providers/transcription/aqua-provider.ts`, `apps/desktop/src/pipeline/providers/transcription/openai-compatible-speech-provider.ts`, `apps/desktop/src/renderer/main/pages/settings/ai-models/tabs/SpeechTab.tsx` |
-| 文字起こし品質 | VAD 対応セグメントフィルタ、既知の幻覚フィルタ、日本語クリーンアップ、句読点ヒント、句読点保持ガードを追加。 | `apps/desktop/src/pipeline/utils/segment-filter.ts`, `apps/desktop/src/pipeline/utils/transcription-cleanup.ts`, `apps/desktop/src/services/transcription-service.ts`, `apps/desktop/tests/pipeline/*` |
-| 録音プレビューと確定 | 録音マネージャーからライブプレビュー更新を送出。フローティングウィジェットで部分/処理中/最終状態を表示。完了した文字起こしの永続化は、ペースト用テキスト準備後にバックグラウンドで実行。 | `apps/desktop/src/main/managers/recording-manager.ts`, `apps/desktop/src/trpc/routers/recording.ts`, `apps/desktop/src/renderer/widget/pages/widget/components/FloatingButton.tsx`, `apps/desktop/src/services/transcription-service.ts` |
-| ブランディングとパッケージング | デスクトップアプリ名を `Amical remake` に変更。アイコン、Forge パッケージング、署名エンタイトルメント、アップデーター、ネイティブ依存のパッケージングを調整。 | `apps/desktop/package.json`, `apps/desktop/forge.config.ts`, `apps/desktop/entitlements.mac.plist`, `apps/desktop/assets/*`, `apps/desktop/public/assets/*`, `apps/desktop/src/main/services/auto-updater.ts` |
-| ビルドと依存関係の更新 | pnpm ロックファイル、Electron/Vite/ESLint/Turbo 設定、ネイティブヘルパーのパッケージスクリプト、関連ワークスペース設定を更新。 | `pnpm-lock.yaml`, `turbo.json`, `apps/desktop/eslint.config.mjs`, `packages/native-helpers/*`, `packages/y-libsql/src/index.ts` |
+| 領域                           | 現在のローカル挙動                                                                                                                                                                       | 代表的なファイル                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 音声 API プロバイダ            | Groq Whisper と Aqua Avalon 1.5 を選択可能な音声モデルとして追加。設定 UI とプロバイダ別 API キー保存に対応。                                                                            | `apps/desktop/src/constants/models.ts`, `apps/desktop/src/pipeline/providers/transcription/groq-provider.ts`, `apps/desktop/src/pipeline/providers/transcription/aqua-provider.ts`, `apps/desktop/src/pipeline/providers/transcription/openai-compatible-speech-provider.ts`, `apps/desktop/src/renderer/main/pages/settings/ai-models/tabs/SpeechTab.tsx` |
+| 文字起こし品質                 | VAD 対応セグメントフィルタ、既知の幻覚フィルタ、日本語クリーンアップ、句読点ヒント、句読点保持ガードを追加。                                                                             | `apps/desktop/src/pipeline/utils/segment-filter.ts`, `apps/desktop/src/pipeline/utils/transcription-cleanup.ts`, `apps/desktop/src/services/transcription-service.ts`, `apps/desktop/tests/pipeline/*`                                                                                                                                                     |
+| 録音プレビューと確定           | 録音マネージャーからライブプレビュー更新を送出。フローティングウィジェットで部分/処理中/最終状態を表示。完了した文字起こしの永続化は、ペースト用テキスト準備後にバックグラウンドで実行。 | `apps/desktop/src/main/managers/recording-manager.ts`, `apps/desktop/src/trpc/routers/recording.ts`, `apps/desktop/src/renderer/widget/pages/widget/components/FloatingButton.tsx`, `apps/desktop/src/services/transcription-service.ts`                                                                                                                   |
+| ブランディングとパッケージング | デスクトップアプリ名を `Amical remake` に変更。アイコン、Forge パッケージング、署名エンタイトルメント、アップデーター、ネイティブ依存のパッケージングを調整。                            | `apps/desktop/package.json`, `apps/desktop/forge.config.ts`, `apps/desktop/entitlements.mac.plist`, `apps/desktop/assets/*`, `apps/desktop/public/assets/*`, `apps/desktop/src/main/services/auto-updater.ts`                                                                                                                                              |
+| ビルドと依存関係の更新         | pnpm ロックファイル、Electron/Vite/ESLint/Turbo 設定、ネイティブヘルパーのパッケージスクリプト、関連ワークスペース設定を更新。                                                           | `pnpm-lock.yaml`, `turbo.json`, `apps/desktop/eslint.config.mjs`, `packages/native-helpers/*`, `packages/y-libsql/src/index.ts`                                                                                                                                                                                                                            |
 
 ## ライブ保留中入力プレビュー
 
@@ -65,6 +65,15 @@ API キーは環境変数ではなく、アプリの設定フローで保存さ�
 
 Groq は OpenAI 互換の `/audio/transcriptions` エンドポイントを使用し、デフォルトのベース URL は `https://api.groq.com/openai/v1` です。設定保存前に、プロバイダの `/models` エンドポイントで Groq キーを検証します。
 
+このフォークの長尺ハンズフリー音声入力は、Groq API の利用を前提に調整されています。PTT は従来どおり低遅延プロファイルを使い、ハンズフリーは長尺プロファイルとしてチャンク分割を遅らせます。
+
+| 録音モード         | プロファイル  | Groq チャンク設定                   |
+| ------------------ | ------------- | ----------------------------------- |
+| プッシュトゥトーク | `low-latency` | 最小 1.6 秒、最大 4 秒、無音 384 ms |
+| ハンズフリー       | `long-form`   | 最小 8 秒、最大 20 秒、無音 2.5 秒  |
+
+ハンズフリー長尺では、停止時に条件を満たすと Groq の full-audio 最終パスを最大 10 秒待ちます。最終パスが空、短すぎる、またはチャンク結果より句読点が大きく失われた場合は、チャンク結果を保持します。
+
 ### Aqua
 
 - `aqua-avalon-v1.5`
@@ -74,7 +83,7 @@ Aqua は OpenAI 互換の文字起こしフローを使用し、デフォルト�
 主な実装箇所:
 
 - `apps/desktop/src/pipeline/providers/transcription/openai-compatible-speech-provider.ts` がバッファリング、VAD トリミング、プロンプト構築、`/audio/transcriptions` 呼び出し、セグメントフィルタ、エラーマッピングの共通処理を実装。
-- `apps/desktop/src/pipeline/providers/transcription/groq-provider.ts` が Groq のデフォルト、ホットワード、低遅延向けの短いチャンク間隔を設定。
+- `apps/desktop/src/pipeline/providers/transcription/groq-provider.ts` が Groq のデフォルト、ホットワード、PTT 低遅延向けの短いチャンク間隔、ハンズフリー長尺向けの長いチャンク間隔を設定。
 - `apps/desktop/src/pipeline/providers/transcription/aqua-provider.ts` が Aqua Avalon のデフォルトとホットワードを設定。
 - `apps/desktop/src/services/transcription-service.ts` がアクティブな音声モデルに応じて Groq または Aqua を選択。
 - `apps/desktop/src/services/settings-service.ts` が Groq と Aqua のプロバイダ設定を保存。
@@ -86,10 +95,10 @@ Aqua は OpenAI 互換の文字起こしフローを使用し、デフォルト�
 現在のデスクトップ文字起こしフロー:
 
 1. `RecordingManager` がセッションを作成し、ネイティブ録音を開始。
-2. 音声チャンクを `TranscriptionService.processStreamingChunk` へストリーミング。
+2. `RecordingManager` が録音モードを `DictationProfile` に変換し、PTT は `low-latency`、ハンズフリーは `long-form` として音声チャンクを `TranscriptionService.processStreamingChunk` へストリーミング。
 3. 設定された音声モデルからアクティブなプロバイダを選択。
-4. ローカル/API プロバイダがチャンクをバッファし、タイミングまたは無音しきい値で文字起こし。
-5. 停止時に `TranscriptionService.finalizeSession` がプロバイダをフラッシュ。長時間録音では Groq 長文最終パスを実行する場合あり。書式化/置換/クリーンアップを適用し、ペースト用テキストを返す。
+4. ローカル/API プロバイダがチャンクをバッファし、プロファイル別のタイミングまたは無音しきい値で文字起こし。
+5. 停止時に `TranscriptionService.finalizeSession` がプロバイダをフラッシュ。ハンズフリー長尺かつ Groq 選択時は Groq 長文最終パスを実行する場合あり。書式化/置換/クリーンアップを適用し、ペースト用テキストを返す。
 6. 最終テキスト準備後に履歴、日次統計、テレメトリを永続化。
 
 品質とクリーンアップの挙動:
@@ -97,9 +106,10 @@ Aqua は OpenAI 互換の文字起こしフローを使用し、デフォルト�
 - VAD 確率で API 文字起こし前に無音音声をトリミング。
 - セグメント単位の `no_speech_prob` で無音・幻覚の可能性が高いセグメントを除去。
 - レスポンス全体のフィルタで既知の幻覚テキストと、信頼度の低い日本語/外国語アーティファクトを除去。
-- ローカルまたは未書式化の最終テキストには決定的な空白クリーンアップを適用。
-- 日本語テキストには保守的な句読点正規化と文境界ヒントを適用。
-- 長時間録音では Groq 長文最終パスを使用するが、想定より短い、または意味のある句読点を失う場合は拒否。
+- ローカルまたは未書式化の低遅延テキストには決定的な空白クリーンアップを適用。
+- 低遅延の日本語テキストには保守的な句読点正規化と文境界ヒントを適用。
+- 長尺ハンズフリーでは機械的な句読点挿入をスキップし、代わりに `では、では、では`、孤立した `ーー ーー`、隣接重複文、`はい。ありがとうございました。` のような無音由来の混入を圧縮または除去。
+- 長尺ハンズフリーでは Groq 長文最終パスを使用するが、想定より短い、または意味のある句読点を失う場合は拒否。
 
 主な実装箇所:
 

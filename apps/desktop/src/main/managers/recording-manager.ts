@@ -18,6 +18,7 @@ import type {
   RecordingMode,
   TerminationCode,
 } from "./recording-state-machine";
+import type { DictationProfile } from "../../pipeline/core/pipeline-types";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { v4 as uuid } from "uuid";
@@ -80,6 +81,7 @@ export class RecordingManager extends EventEmitter {
   private recordingStartedAt: number | null = null;
   private recordingStoppedAt: number | null = null;
   private previewText: string = "";
+  private currentSessionMode: ActiveRecordingMode | null = null;
 
   // System audio state tracking
   private systemAudioMuted: boolean = false;
@@ -158,6 +160,10 @@ export class RecordingManager extends EventEmitter {
   }
 
   private emitModeChange(newMode: RecordingMode, oldMode: RecordingMode): void {
+    if (newMode !== "idle") {
+      this.currentSessionMode = newMode;
+    }
+
     logger.audio.info("Recording mode changed", {
       oldMode,
       newMode,
@@ -323,6 +329,8 @@ export class RecordingManager extends EventEmitter {
       this.resetSessionState({ force: true });
       return;
     }
+
+    this.currentSessionMode = mode;
 
     if (stateAtStart.tag !== "STARTING") {
       // A synchronous state-changed listener requested stop while handling
@@ -604,6 +612,7 @@ export class RecordingManager extends EventEmitter {
                 sessionId: this.currentSessionId,
                 audioChunk: chunk,
                 recordingStartedAt: this.recordingStartedAt || undefined,
+                dictationProfile: this.getDictationProfile(),
               });
             if (previewText.trim()) {
               this.emitTranscriptionPreview(previewText, "partial");
@@ -640,6 +649,7 @@ export class RecordingManager extends EventEmitter {
           sessionId,
           audioChunk: chunk,
           recordingStartedAt: this.recordingStartedAt || undefined,
+          dictationProfile: this.getDictationProfile(),
         });
         if (previewText.trim()) {
           this.emitTranscriptionPreview(previewText, "partial");
@@ -736,6 +746,7 @@ export class RecordingManager extends EventEmitter {
         audioFilePath: audioFilePath || undefined,
         recordingStartedAt: this.recordingStartedAt || undefined,
         recordingStoppedAt: this.recordingStoppedAt || undefined,
+        dictationProfile: this.getDictationProfile(),
       });
     } catch (error) {
       logger.audio.error("Failed to get final transcription", { error });
@@ -805,6 +816,12 @@ export class RecordingManager extends EventEmitter {
   private isQuickAction(): boolean {
     if (!this.recordingInitiatedAt) return false;
     return Date.now() - this.recordingInitiatedAt < QUICK_PRESS_THRESHOLD;
+  }
+
+  private getDictationProfile(): DictationProfile {
+    return this.currentSessionMode === "hands-free"
+      ? "long-form"
+      : "low-latency";
   }
 
   private async hasSpeechModelSelected(): Promise<boolean> {
@@ -1082,6 +1099,7 @@ export class RecordingManager extends EventEmitter {
     this.recordingInitiatedAt = null;
     this.audioChunks = [];
     this.terminationCode = null;
+    this.currentSessionMode = null;
     this.previewText = "";
     this.emit("transcription-preview", {
       sessionId: null,

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyLongFormTranscriptionCleanup,
+  applyLongFormPromptCleanup,
   applyLightweightTranscriptionCleanup,
   applyTranscriptionCleanupIfEnabled,
   shouldPreservePunctuatedTranscript,
@@ -115,5 +117,94 @@ describe("transcription-cleanup", () => {
         language: "ja",
       }),
     ).toBe("もう少し早く表示されると嬉しい。");
+  });
+
+  it("collapses repeated filler loops in long-form dictation", () => {
+    expect(
+      applyLongFormTranscriptionCleanup(
+        "喋りながら では、 では、 では、 見えてる",
+      ),
+    ).toBe("喋りながらでは、見えてる");
+  });
+
+  it("removes isolated long-dash loops in long-form dictation", () => {
+    expect(
+      applyLongFormTranscriptionCleanup(
+        "ライブ配信のペースを2週間に1回にしようかなと思ってー ーー ーー ーーちゃんと告知",
+      ),
+    ).toBe("ライブ配信のペースを2週間に1回にしようかなと思ってーちゃんと告知");
+  });
+
+  it("removes adjacent duplicate sentence loops in long-form dictation", () => {
+    expect(
+      applyLongFormTranscriptionCleanup(
+        "YouTubeを投稿しなきゃいい動画を出す。 か、YouTubeを投稿しなきゃいい動画を出す。 かられるようになっちゃって。",
+      ),
+    ).toBe("YouTubeを投稿しなきゃいい動画を出す。かられるようになっちゃって。");
+  });
+
+  it("does not strip duplicate markers without punctuation boundaries", () => {
+    expect(
+      applyLongFormTranscriptionCleanup("その話をします。話をします。"),
+    ).toBe("その話をします。話をします。");
+  });
+
+  it("removes paired hai and thanks hallucinations without dropping intentional thanks", () => {
+    expect(
+      applyLongFormTranscriptionCleanup(
+        "話している途中。はい。ありがとうございました。次の話。",
+      ),
+    ).toBe("話している途中。次の話。");
+
+    expect(applyLongFormTranscriptionCleanup("ありがとうございました。")).toBe(
+      "ありがとうございました。",
+    );
+
+    expect(
+      applyLongFormTranscriptionCleanup(
+        "今日はここまでです。ありがとうございました。",
+      ),
+    ).toBe("今日はここまでです。ありがとうございました。");
+  });
+
+  it("does not run punctuation insertion rules for long-form dictation", () => {
+    expect(
+      applyTranscriptionCleanupIfEnabled("もう少し早く表示されると嬉しい", {
+        enablePunctuation: true,
+        skipLightweightCleanup: false,
+        language: "ja",
+        dictationProfile: "long-form",
+      }),
+    ).toBe("もう少し早く表示されると嬉しい");
+  });
+
+  it("skips long-form cleanup after formatter cleanup is explicitly skipped", () => {
+    const raw = "話している途中。はい。ありがとうございました。次の話。";
+    expect(
+      applyTranscriptionCleanupIfEnabled(raw, {
+        enablePunctuation: true,
+        skipLightweightCleanup: true,
+        language: "ja",
+        dictationProfile: "long-form",
+      }),
+    ).toBe(raw);
+  });
+
+  it("removes low-information long-form tails from prompt context", () => {
+    expect(applyLongFormPromptCleanup("では、では、では、")).toBe("");
+    expect(applyLongFormPromptCleanup("ここから話します。では、")).toBe(
+      "ここから話します。",
+    );
+    expect(
+      applyLongFormPromptCleanup(
+        "今日はここまでです。ありがとうございました。",
+      ),
+    ).toBe("今日はここまでです。");
+  });
+
+  it("keeps English punctuation spacing during surface normalization", () => {
+    expect(applyLongFormTranscriptionCleanup("Hello, world. Test")).toBe(
+      "Hello, world. Test",
+    );
   });
 });

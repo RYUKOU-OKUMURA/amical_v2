@@ -49,6 +49,9 @@ function createProvider(
     typeof OpenAICompatibleSpeechProvider
   >[1]["timing"],
   name = "test-api",
+  longFormTiming?: ConstructorParameters<
+    typeof OpenAICompatibleSpeechProvider
+  >[1]["longFormTiming"],
 ): OpenAICompatibleSpeechProvider {
   const settingsService = {
     getDefaultSpeechModel: vi.fn(async () => "test-whisper-model"),
@@ -62,6 +65,7 @@ function createProvider(
     modelPrefix: "test-",
     hotwords: [],
     timing,
+    longFormTiming,
     getConfig: async () => ({
       apiKey: "test-key",
       baseURL: "https://speech.test/openai/v1",
@@ -75,6 +79,7 @@ async function feedFrames(
   provider: OpenAICompatibleSpeechProvider,
   speechFrames: number,
   silenceFrames: number,
+  context: TranscribeContext = baseContext(),
 ) {
   let result = { text: "" };
 
@@ -82,7 +87,7 @@ async function feedFrames(
     result = await provider.transcribe({
       audioData: audioFrame(0.1),
       speechProbability: 1,
-      context: baseContext(),
+      context,
     });
   }
 
@@ -90,7 +95,7 @@ async function feedFrames(
     result = await provider.transcribe({
       audioData: audioFrame(0),
       speechProbability: 0,
-      context: baseContext(),
+      context,
     });
   }
 
@@ -140,6 +145,54 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps Groq long-form timing buffered through the low-latency silence window", async () => {
+    const provider = createProvider(
+      {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 4000,
+        minSilenceDurationMs: 384,
+      },
+      "test-api",
+      {
+        minAudioDurationMs: 8000,
+        maxAudioDurationMs: 20000,
+        minSilenceDurationMs: 2500,
+      },
+    );
+
+    const result = await feedFrames(provider, 50, 12, {
+      ...baseContext(),
+      dictationProfile: "long-form",
+    });
+
+    expect(result).toEqual({ text: "" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("transcribes Groq long-form timing after a longer pause", async () => {
+    const provider = createProvider(
+      {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 4000,
+        minSilenceDurationMs: 384,
+      },
+      "test-api",
+      {
+        minAudioDurationMs: 8000,
+        maxAudioDurationMs: 20000,
+        minSilenceDurationMs: 2500,
+      },
+    );
+
+    const result = await feedFrames(provider, 250, 79, {
+      ...baseContext(),
+      dictationProfile: "long-form",
+    });
+
+    expect(result).toEqual({ text: "こんにちは" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("transcribes at the low-latency maximum duration even without silence", async () => {
     const provider = createProvider({
       minAudioDurationMs: 1600,
@@ -173,6 +226,25 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     expect(formData.get("prompt")).toBeNull();
+  });
+
+  it("passes the deadline abort signal to full-audio final pass requests", async () => {
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+    const abortController = new AbortController();
+
+    await provider.transcribeFullAudio({
+      audioData: audioFrames(50),
+      speechProbabilities: new Array(50).fill(1),
+      signal: abortController.signal,
+      context: baseContext(),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(abortController.signal);
   });
 });
 

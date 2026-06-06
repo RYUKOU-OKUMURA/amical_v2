@@ -3,6 +3,24 @@ title: Bring Your Own Model
 description: Point to any AI model within the app
 ---
 
-<Callout title="Coming soon">This feature is on the roadmap</Callout>
+Amical supports local Whisper models and hosted speech models configured through the AI Models settings.
 
-Amical will soon allow you to use your own AI models for transcription, providing maximum flexibility and control.
+## Speech Models
+
+Open:
+
+`Settings -> AI Models -> Speech`
+
+From there you can choose:
+
+- Local Whisper models downloaded to your machine
+- Amical Cloud
+- Groq Whisper Large v3 Turbo
+- Groq Whisper Large v3
+- Aqua Avalon 1.5
+
+Hosted providers require their provider API key before they can be selected.
+
+## Groq Long-Form Dictation
+
+Groq speech models are the expected hosted provider for long hands-free dictation. Amical keeps push-to-talk responsive with short low-latency chunks, while hands-free dictation uses longer Groq chunks and a guarded final pass to reduce pause-induced loops.

@@ -7,6 +7,8 @@ import { PipelineContext } from "./context";
 import { GetAccessibilityContextResult } from "@amical/types";
 export { PipelineContext, SharedPipelineData } from "./context";
 
+export type DictationProfile = "low-latency" | "long-form";
+
 // Context for transcription operations (shared between transcribe and flush)
 export interface TranscribeContext {
   sessionId?: string;
@@ -16,6 +18,7 @@ export interface TranscribeContext {
   aggregatedTranscription?: string;
   language?: string;
   formattingEnabled?: boolean;
+  dictationProfile?: DictationProfile;
 }
 
 // Transcription input parameters
@@ -28,6 +31,7 @@ export interface TranscribeParams {
 export interface FullAudioTranscribeParams {
   audioData: Float32Array;
   speechProbabilities?: number[];
+  signal?: AbortSignal;
   context: TranscribeContext;
 }
 
@@ -104,6 +108,7 @@ export interface StreamingSession {
   recordingStartedAt?: number; // When user pressed record button (from RecordingManager)
   recordingStoppedAt?: number; // When user released record button (from RecordingManager)
   finalizationStartedAt?: number; // When finalizeSession() was called
+  dictationProfile?: DictationProfile;
 }
 
 // Simple pipeline configuration

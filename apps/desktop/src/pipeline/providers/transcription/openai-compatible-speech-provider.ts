@@ -51,6 +51,7 @@ interface OpenAICompatibleSpeechProviderOptions {
   modelPrefix: string;
   hotwords: readonly string[];
   timing?: Partial<OpenAICompatibleSpeechTiming>;
+  longFormTiming?: Partial<OpenAICompatibleSpeechTiming>;
   getConfig: (
     settingsService: SettingsService,
   ) => Promise<OpenAICompatibleSpeechConfig | undefined>;
@@ -214,6 +215,7 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
   private frameBufferSpeechProbabilities: number[] = [];
   private currentSilenceFrameCount = 0;
   private timing: OpenAICompatibleSpeechTiming;
+  private longFormTiming: OpenAICompatibleSpeechTiming;
 
   constructor(
     private settingsService: SettingsService,
@@ -223,6 +225,10 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     this.timing = {
       ...DEFAULT_TIMING,
       ...options.timing,
+    };
+    this.longFormTiming = {
+      ...this.timing,
+      ...options.longFormTiming,
     };
   }
 
@@ -242,17 +248,18 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
 
   async transcribe(params: TranscribeParams): Promise<TranscriptionOutput> {
     const { audioData, speechProbability = 1, context } = params;
+    const timing = this.timingForContext(context);
 
     this.frameBuffer.push(audioData);
     this.frameBufferSpeechProbabilities.push(speechProbability);
 
-    if (speechProbability > this.timing.speechProbabilityThreshold) {
+    if (speechProbability > timing.speechProbabilityThreshold) {
       this.currentSilenceFrameCount = 0;
     } else {
       this.currentSilenceFrameCount++;
     }
 
-    if (!this.shouldTranscribe()) {
+    if (!this.shouldTranscribe(context)) {
       return { text: "" };
     }
 
@@ -282,6 +289,7 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
         previousChunk: undefined,
       },
       "final-pass",
+      params.signal,
     );
   }
 
@@ -291,37 +299,47 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     this.currentSilenceFrameCount = 0;
   }
 
-  private shouldTranscribe(): boolean {
+  private shouldTranscribe(context: TranscribeContext): boolean {
+    const timing = this.timingForContext(context);
     const audioDurationMs =
       ((this.frameBuffer.length * FRAME_SIZE) / SAMPLE_RATE) * 1000;
     const silenceDurationMs =
       ((this.currentSilenceFrameCount * FRAME_SIZE) / SAMPLE_RATE) * 1000;
 
-    if (audioDurationMs >= this.timing.maxAudioDurationMs) {
+    if (audioDurationMs >= timing.maxAudioDurationMs) {
       logger.transcription.debug(
         `Transcribing ${this.options.displayName} buffer at max duration`,
-        { audioDurationMs },
+        { audioDurationMs, dictationProfile: context.dictationProfile },
       );
       return true;
     }
 
     if (
-      audioDurationMs >= this.timing.minAudioDurationMs &&
-      silenceDurationMs >= this.timing.minSilenceDurationMs
+      audioDurationMs >= timing.minAudioDurationMs &&
+      silenceDurationMs >= timing.minSilenceDurationMs
     ) {
       logger.transcription.debug(
         `Transcribing ${this.options.displayName} buffer after silence`,
         {
           audioDurationMs,
           silenceDurationMs,
-          minAudioDurationMs: this.timing.minAudioDurationMs,
-          minSilenceDurationMs: this.timing.minSilenceDurationMs,
+          minAudioDurationMs: timing.minAudioDurationMs,
+          minSilenceDurationMs: timing.minSilenceDurationMs,
+          dictationProfile: context.dictationProfile,
         },
       );
       return true;
     }
 
     return false;
+  }
+
+  private timingForContext(
+    context: TranscribeContext,
+  ): OpenAICompatibleSpeechTiming {
+    return context.dictationProfile === "long-form"
+      ? this.longFormTiming
+      : this.timing;
   }
 
   private aggregateFrames(): Float32Array {
@@ -355,6 +373,7 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     vadProbs: number[],
     context: TranscribeContext,
     mode: "chunk" | "final-pass",
+    signal?: AbortSignal,
   ): Promise<TranscriptionOutput> {
     const { audio: speechAudio, segments: speechSegments } =
       extractSpeechFromVad(rawAudio, vadProbs);
@@ -418,7 +437,7 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
         "User-Agent": getUserAgent(),
       },
       body: formData,
-      signal: AbortSignal.timeout(30_000),
+      signal: signal ?? AbortSignal.timeout(30_000),
     });
 
     if (this.options.name === "groq") {
@@ -464,6 +483,7 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
         duration,
         audioDurationMs: speechQuality.speechDurationMs,
         mode,
+        dictationProfile: context.dictationProfile,
       },
     );
 

@@ -3,4 +3,25 @@ title: Getting Started
 description: How to get started with Amical
 ---
 
-Guide coming soon.
+## 1. Install and Open Amical
+
+Start the desktop app and complete the onboarding prompts for microphone and accessibility permissions.
+
+## 2. Choose a Speech Model
+
+Open:
+
+`Settings -> AI Models -> Speech`
+
+For hosted long-form hands-free dictation, configure a Groq API key and select either:
+
+- `groq-whisper-large-v3-turbo`
+- `groq-whisper-large-v3`
+
+Local Whisper models can also be used when you want offline transcription.
+
+## 3. Pick a Dictation Mode
+
+Use push-to-talk for short, low-latency dictation.
+
+Use hands-free for longer sessions. With Groq selected, hands-free mode uses longer chunks and a guarded final pass to handle thinking pauses more reliably.

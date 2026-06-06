@@ -13,10 +13,12 @@ type RecordingManagerInternals = {
   currentSessionId: string | null;
   terminationCode: TerminationCode | null;
   recordingStartedAt: number | null;
+  currentSessionMode: ActiveRecordingMode | null;
   systemAudioMuted: boolean;
   soundsMuted: boolean;
   performStartSession(mode: ActiveRecordingMode): Promise<void>;
   performEndRecording(code?: TerminationCode | null): Promise<void>;
+  handleAudioChunk(chunk: Float32Array, isFinalChunk: boolean): Promise<void>;
   handleFinalChunk(): Promise<void>;
   forceIdle(): Promise<void>;
 };
@@ -275,6 +277,56 @@ describe("recording manager FSM interpreter", () => {
     expect(internals.currentSessionId).toBeNull();
     expect(internals.recordingStartedAt).toBeNull();
     expect(internals.machine.currentState).toEqual({ tag: "IDLE" });
+  });
+
+  it("passes long-form dictation profile only for hands-free chunks", async () => {
+    const transcriptionService = {
+      processStreamingChunk: vi.fn().mockResolvedValue("preview"),
+    };
+    const manager = createRecordingManager({ transcriptionService });
+    const internals = internalsOf(manager);
+    internals.currentSessionId = "session-hf";
+    internals.currentSessionMode = "hands-free";
+    internals.recordingStartedAt = 123;
+    internals.machine.__setStateForTesting({
+      tag: "REC_HF",
+      firstChunkReceived: false,
+    });
+
+    await internals.handleAudioChunk(new Float32Array(512).fill(0.1), false);
+
+    expect(transcriptionService.processStreamingChunk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-hf",
+        dictationProfile: "long-form",
+        recordingStartedAt: 123,
+      }),
+    );
+
+    const pttTranscriptionService = {
+      processStreamingChunk: vi.fn().mockResolvedValue("preview"),
+    };
+    const pttManager = createRecordingManager({
+      transcriptionService: pttTranscriptionService,
+    });
+    const pttInternals = internalsOf(pttManager);
+    pttInternals.currentSessionId = "session-ptt";
+    pttInternals.currentSessionMode = "ptt";
+    pttInternals.recordingStartedAt = 456;
+    pttInternals.machine.__setStateForTesting({
+      tag: "REC_PTT",
+      firstChunkReceived: false,
+    });
+
+    await pttInternals.handleAudioChunk(new Float32Array(512).fill(0.1), false);
+
+    expect(pttTranscriptionService.processStreamingChunk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-ptt",
+        dictationProfile: "low-latency",
+        recordingStartedAt: 456,
+      }),
+    );
   });
 
   it("times out instead of waiting forever for a pending stop command", async () => {

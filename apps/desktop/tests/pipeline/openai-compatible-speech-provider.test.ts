@@ -52,6 +52,7 @@ function createProvider(
   longFormTiming?: ConstructorParameters<
     typeof OpenAICompatibleSpeechProvider
   >[1]["longFormTiming"],
+  hotwords: readonly string[] = [],
 ): OpenAICompatibleSpeechProvider {
   const settingsService = {
     getDefaultSpeechModel: vi.fn(async () => "test-whisper-model"),
@@ -63,7 +64,7 @@ function createProvider(
     defaultBaseURL: "https://speech.test/openai/v1",
     defaultModel: "test-whisper-model",
     modelPrefix: "test-",
-    hotwords: [],
+    hotwords,
     timing,
     longFormTiming,
     getConfig: async () => ({
@@ -211,14 +212,16 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
       minAudioDurationMs: 1600,
       maxAudioDurationMs: 4000,
       minSilenceDurationMs: 384,
-    });
+    }, "test-api", undefined, ["Groq"]);
 
     const result = await provider.transcribeFullAudio({
       audioData: audioFrames(50),
       speechProbabilities: new Array(50).fill(1),
       context: {
         ...baseContext(),
+        vocabulary: ["Codex"],
         aggregatedTranscription: "これは既にチャンクで認識された文章です",
+        promptMode: "none",
       },
     });
 
@@ -226,6 +229,143 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     expect(formData.get("prompt")).toBeNull();
+  });
+
+  it("sends raw audio for full-audio final pass when VAD probabilities are silent", async () => {
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+    const audioData = audioFrames(50);
+
+    await provider.transcribeFullAudio({
+      audioData,
+      speechProbabilities: new Array(50).fill(0),
+      context: {
+        ...baseContext(),
+        promptMode: "none",
+        speechExtractionMode: "raw",
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    const file = formData.get("file") as Blob;
+    expect(file.size).toBe(44 + audioData.length * 2);
+  });
+
+  it("suppresses prompts for low-information chunks", async () => {
+    const provider = createProvider(
+      {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 1600,
+        minSilenceDurationMs: 384,
+      },
+      "test-api",
+      undefined,
+      ["Groq"],
+    );
+
+    const result = await feedFrames(provider, 50, 0, {
+      ...baseContext(),
+      vocabulary: ["Codex"],
+    });
+
+    expect(result).toEqual({ text: "こんにちは" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    expect(formData.get("prompt")).toBeNull();
+  });
+
+  it("drops vocabulary echo responses", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => ({
+        text: "Codex, AquaVoice, Groq, API",
+        segments: [
+          {
+            text: "Codex, AquaVoice, Groq, API",
+            no_speech_prob: 0.01,
+          },
+        ],
+      }),
+    });
+    const provider = createProvider(
+      {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 4000,
+        minSilenceDurationMs: 384,
+      },
+      "test-api",
+      undefined,
+      ["Groq", "API"],
+    );
+
+    const result = await feedFrames(provider, 50, 12, {
+      ...baseContext(),
+      vocabulary: ["Codex", "AquaVoice"],
+    });
+
+    expect(result).toEqual({ text: "" });
+  });
+
+  it("falls back to raw long-form chunk audio when VAD extracts no speech", async () => {
+    const provider = createProvider(
+      {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 4000,
+        minSilenceDurationMs: 384,
+      },
+      "test-api",
+      {
+        minAudioDurationMs: 8000,
+        maxAudioDurationMs: 20000,
+        minSilenceDurationMs: 2500,
+      },
+      ["Groq"],
+    );
+    const result = await feedFrames(provider, 0, 250, {
+      ...baseContext(),
+      vocabulary: ["Codex"],
+      dictationProfile: "long-form",
+    });
+
+    const sentAudioSampleCount = FRAME_SIZE * 250;
+    expect(result).toEqual({ text: "こんにちは" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    const file = formData.get("file") as Blob;
+    expect(file.size).toBe(44 + sentAudioSampleCount * 2);
+    expect(formData.get("prompt")).toBeNull();
+  });
+
+  it("keeps buffered audio when a chunk request fails", async () => {
+    fetchMock
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          text: "復旧しました",
+          segments: [{ text: "復旧しました", no_speech_prob: 0.01 }],
+        }),
+      });
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+
+    await expect(feedFrames(provider, 50, 12)).rejects.toThrow("network down");
+
+    await expect(provider.flush(baseContext())).resolves.toEqual({
+      text: "復旧しました",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("passes the deadline abort signal to full-audio final pass requests", async () => {
@@ -240,7 +380,10 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
       audioData: audioFrames(50),
       speechProbabilities: new Array(50).fill(1),
       signal: abortController.signal,
-      context: baseContext(),
+      context: {
+        ...baseContext(),
+        speechExtractionMode: "raw",
+      },
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);

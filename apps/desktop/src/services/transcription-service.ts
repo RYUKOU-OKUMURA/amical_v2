@@ -81,7 +81,7 @@ interface CompletedTranscriptionPersistenceJob {
 
 const AUDIO_FRAME_SIZE = 512;
 const AUDIO_SAMPLE_RATE = 16000;
-const MIN_ACCEPTABLE_FINAL_PASS_LENGTH_RATIO = 0.45;
+const MIN_FINAL_PASS_LENGTH_GAIN_RATIO = 1.05;
 
 /**
  * Service for audio transcription and optional formatting
@@ -849,6 +849,8 @@ export class TranscriptionService {
               language: session.context.sharedData.userPreferences?.language,
               formattingEnabled: false,
               dictationProfile: session.dictationProfile,
+              promptMode: "none",
+              speechExtractionMode: "raw",
             },
           });
         },
@@ -867,17 +869,31 @@ export class TranscriptionService {
       }
 
       const rawLength = rawTranscription.trim().length;
-      if (
-        rawLength >= 80 &&
-        finalPassText.length <
-          rawLength * MIN_ACCEPTABLE_FINAL_PASS_LENGTH_RATIO
-      ) {
-        logger.transcription.warn(
-          "Groq long-form final pass was much shorter than chunk transcript; keeping chunk transcript",
+      if (rawLength > 0 && finalPassText.length <= rawLength) {
+        logger.transcription.info(
+          "Groq long-form final pass did not add content; keeping chunk transcript",
           {
             sessionId: session.context.sessionId,
             rawLength,
             finalPassLength: finalPassText.length,
+          },
+        );
+        return null;
+      }
+
+      if (
+        rawLength >= 80 &&
+        finalPassText.length < rawLength * MIN_FINAL_PASS_LENGTH_GAIN_RATIO
+      ) {
+        logger.transcription.info(
+          "Groq long-form final pass gain was too small; keeping chunk transcript",
+          {
+            sessionId: session.context.sessionId,
+            rawLength,
+            finalPassLength: finalPassText.length,
+            minFinalPassLength: Math.ceil(
+              rawLength * MIN_FINAL_PASS_LENGTH_GAIN_RATIO,
+            ),
           },
         );
         return null;

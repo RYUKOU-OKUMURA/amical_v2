@@ -130,8 +130,8 @@ describe("TranscriptionService formatting deadline", () => {
       context,
       transcriptionResults: [],
       dictationProfile: "long-form",
-      recordingStartedAt: 0,
-      recordingStoppedAt: 13_000,
+      recordingStartedAt: 1,
+      recordingStoppedAt: 13_001,
     };
 
     await expect(
@@ -143,5 +143,168 @@ describe("TranscriptionService formatting deadline", () => {
           "これは十分に長いチャンク結果です。final pass が短いループに潰れた場合は、このチャンク結果を保持します。これは十分に長いチャンク結果です。",
       }),
     ).resolves.toBeNull();
+  });
+
+  it("keeps chunk transcript when Groq long-form final pass is shorter", async () => {
+    const service = createTranscriptionServiceForTest() as unknown as {
+      readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
+      computeVadProbabilitiesForAudio: (
+        audioData: Float32Array,
+        signal: AbortSignal,
+      ) => Promise<number[]>;
+      runGroqLongFormFinalPass: (options: {
+        provider: TranscriptionProvider | null;
+        session: StreamingSession;
+        audioFilePath?: string;
+        rawTranscription: string;
+      }) => Promise<string | null>;
+    };
+    service.readWavAsFloat32 = vi
+      .fn()
+      .mockResolvedValue(new Float32Array(16_000 * 13).fill(0.1));
+    service.computeVadProbabilitiesForAudio = vi
+      .fn()
+      .mockResolvedValue(new Array(13 * 32).fill(1));
+
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(),
+      flush: vi.fn(),
+      reset: vi.fn(),
+      transcribeFullAudio: vi.fn().mockResolvedValue({
+        text: "これは短い最終パスです。",
+      }),
+    } as unknown as TranscriptionProvider;
+    const context = {
+      ...createDefaultContext("session-1"),
+      isPartial: true,
+      isFinal: false,
+    } satisfies StreamingPipelineContext;
+    const session: StreamingSession = {
+      context,
+      transcriptionResults: [],
+      dictationProfile: "long-form",
+      recordingStartedAt: 1,
+      recordingStoppedAt: 13_001,
+    };
+
+    await expect(
+      service.runGroqLongFormFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription:
+          "これは十分に長いチャンク結果です。短い final pass では、この内容を置き換えてはいけません。",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("accepts a Groq long-form final pass only when it adds enough content", async () => {
+    const service = createTranscriptionServiceForTest() as unknown as {
+      readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
+      computeVadProbabilitiesForAudio: (
+        audioData: Float32Array,
+        signal: AbortSignal,
+      ) => Promise<number[]>;
+      runGroqLongFormFinalPass: (options: {
+        provider: TranscriptionProvider | null;
+        session: StreamingSession;
+        audioFilePath?: string;
+        rawTranscription: string;
+      }) => Promise<string | null>;
+    };
+    service.readWavAsFloat32 = vi
+      .fn()
+      .mockResolvedValue(new Float32Array(16_000 * 13).fill(0.1));
+    service.computeVadProbabilitiesForAudio = vi
+      .fn()
+      .mockResolvedValue(new Array(13 * 32).fill(1));
+
+    const finalPassText =
+      "これは十分に長いチャンク結果です。final pass が明確に内容を補っているので採用できます。追加の説明も保持されています。";
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(),
+      flush: vi.fn(),
+      reset: vi.fn(),
+      transcribeFullAudio: vi.fn().mockResolvedValue({ text: finalPassText }),
+    } as unknown as TranscriptionProvider;
+    const context = {
+      ...createDefaultContext("session-1"),
+      isPartial: true,
+      isFinal: false,
+    } satisfies StreamingPipelineContext;
+    const session: StreamingSession = {
+      context,
+      transcriptionResults: [],
+      dictationProfile: "long-form",
+      recordingStartedAt: 1,
+      recordingStoppedAt: 13_001,
+    };
+
+    await expect(
+      service.runGroqLongFormFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription:
+          "これは十分に長いチャンク結果です。final pass が内容を補っている場合だけ採用します。",
+      }),
+    ).resolves.toBe(finalPassText);
+  });
+
+  it("accepts non-empty Groq long-form final pass when chunk transcript is empty", async () => {
+    const service = createTranscriptionServiceForTest() as unknown as {
+      readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
+      computeVadProbabilitiesForAudio: (
+        audioData: Float32Array,
+        signal: AbortSignal,
+      ) => Promise<number[]>;
+      runGroqLongFormFinalPass: (options: {
+        provider: TranscriptionProvider | null;
+        session: StreamingSession;
+        audioFilePath?: string;
+        rawTranscription: string;
+      }) => Promise<string | null>;
+    };
+    service.readWavAsFloat32 = vi
+      .fn()
+      .mockResolvedValue(new Float32Array(16_000 * 13).fill(0.1));
+    service.computeVadProbabilitiesForAudio = vi
+      .fn()
+      .mockResolvedValue(new Array(13 * 32).fill(1));
+
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(),
+      flush: vi.fn(),
+      reset: vi.fn(),
+      transcribeFullAudio: vi.fn().mockResolvedValue({
+        text: "チャンクが空だった場合は最終パスの非空結果を採用します。",
+      }),
+    } as unknown as TranscriptionProvider;
+    const context = {
+      ...createDefaultContext("session-1"),
+      isPartial: true,
+      isFinal: false,
+    } satisfies StreamingPipelineContext;
+    const session: StreamingSession = {
+      context,
+      transcriptionResults: [],
+      dictationProfile: "long-form",
+      recordingStartedAt: 1,
+      recordingStoppedAt: 13_001,
+    };
+
+    await expect(
+      service.runGroqLongFormFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription: "",
+      }),
+    ).resolves.toBe(
+      "チャンクが空だった場合は最終パスの非空結果を採用します。",
+    );
   });
 });

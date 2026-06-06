@@ -8,6 +8,8 @@ import { GetAccessibilityContextResult } from "@amical/types";
 export { PipelineContext, SharedPipelineData } from "./context";
 
 export type DictationProfile = "low-latency" | "long-form";
+export type PromptMode = "default" | "none";
+export type SpeechExtractionMode = "vad-trim" | "raw";
 
 // Context for transcription operations (shared between transcribe and flush)
 export interface TranscribeContext {
@@ -19,6 +21,8 @@ export interface TranscribeContext {
   language?: string;
   formattingEnabled?: boolean;
   dictationProfile?: DictationProfile;
+  promptMode?: PromptMode;
+  speechExtractionMode?: SpeechExtractionMode;
 }
 
 // Transcription input parameters

@@ -75,6 +75,11 @@ const DEFAULT_TIMING: OpenAICompatibleSpeechTiming = {
   maxAudioDurationMs: 15000,
   minSilenceDurationMs: 700,
 };
+const LOW_INFORMATION_MAX_SPEECH_DURATION_MS = 1800;
+const LOW_INFORMATION_MAX_AVERAGE_SPEECH_PROBABILITY = 0.35;
+const LOW_INFORMATION_MAX_PEAK_SPEECH_PROBABILITY = 0.55;
+const VOCABULARY_ECHO_MIN_MATCHES = 2;
+const VOCABULARY_ECHO_MATCH_RATIO = 0.7;
 
 function modelIdFromSelection(
   selection: string | undefined,
@@ -132,6 +137,7 @@ function normalizeLanguageCode(
 function getFilteredText(
   body: OpenAICompatibleTranscriptionResponse | null,
   quality: CompleteTranscriptionQuality,
+  echoVocabulary: readonly string[],
 ): string {
   const segments = body?.segments ?? [];
   if (segments.length > 0) {
@@ -140,14 +146,20 @@ function getFilteredText(
         !shouldDropSegment({
           text: segment.text ?? "",
           noSpeechProb: segment.noSpeechProb ?? segment.no_speech_prob,
-        }),
+        }) && !isVocabularyEcho(segment.text ?? "", echoVocabulary),
     );
     const text = kept.map((segment) => segment.text ?? "").join("");
-    return shouldDropCompleteTranscription(text, quality) ? "" : text;
+    return shouldDropCompleteTranscription(text, quality) ||
+      isVocabularyEcho(text, echoVocabulary)
+      ? ""
+      : text;
   }
 
   const text = body?.text ?? "";
-  return shouldDropCompleteTranscription(text, quality) ? "" : text;
+  return shouldDropCompleteTranscription(text, quality) ||
+    isVocabularyEcho(text, echoVocabulary)
+    ? ""
+    : text;
 }
 
 function getSpeechQuality(
@@ -206,6 +218,87 @@ function normalizeSpeechProbabilities(
   }
 
   return normalized;
+}
+
+function segmentForWholeAudio(
+  audioData: Float32Array,
+): Array<{ start: number; end: number }> {
+  const frameCount = Math.ceil(audioData.length / FRAME_SIZE);
+  return frameCount > 0 ? [{ start: 0, end: frameCount - 1 }] : [];
+}
+
+function isLowInformationSpeech(
+  quality: CompleteTranscriptionQuality,
+): boolean {
+  if (
+    typeof quality.speechDurationMs === "number" &&
+    quality.speechDurationMs < LOW_INFORMATION_MAX_SPEECH_DURATION_MS
+  ) {
+    return true;
+  }
+
+  if (
+    typeof quality.averageSpeechProbability === "number" &&
+    quality.averageSpeechProbability <=
+      LOW_INFORMATION_MAX_AVERAGE_SPEECH_PROBABILITY
+  ) {
+    return true;
+  }
+
+  return (
+    typeof quality.maxSpeechProbability === "number" &&
+    quality.maxSpeechProbability <=
+      LOW_INFORMATION_MAX_PEAK_SPEECH_PROBABILITY
+  );
+}
+
+function normalizeVocabularyEchoToken(token: string): string {
+  return token
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s、。,.!！?？「」『』（）()[\]【】"'`;；:：]/g, "")
+    .trim();
+}
+
+function tokenizePotentialVocabularyEcho(text: string): string[] {
+  const commaTokens = text
+    .split(/[,\n、。！？!?;；]+/u)
+    .map(normalizeVocabularyEchoToken)
+    .filter(Boolean);
+  if (commaTokens.length >= 2) {
+    return commaTokens;
+  }
+
+  return text
+    .split(/[\s,\n、。！？!?;；]+/u)
+    .map(normalizeVocabularyEchoToken)
+    .filter(Boolean);
+}
+
+function isVocabularyEcho(
+  text: string,
+  vocabulary: readonly string[],
+): boolean {
+  const normalizedVocabulary = new Set(
+    vocabulary.map(normalizeVocabularyEchoToken).filter(Boolean),
+  );
+  if (normalizedVocabulary.size === 0) {
+    return false;
+  }
+
+  const tokens = tokenizePotentialVocabularyEcho(text);
+  if (tokens.length === 0) {
+    return false;
+  }
+
+  const matchCount = tokens.filter((token) =>
+    normalizedVocabulary.has(token),
+  ).length;
+
+  return (
+    matchCount >= VOCABULARY_ECHO_MIN_MATCHES &&
+    matchCount / tokens.length >= VOCABULARY_ECHO_MATCH_RATIO
+  );
 }
 
 export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
@@ -363,9 +456,15 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
   ): Promise<TranscriptionOutput> {
     const rawAudio = this.aggregateFrames();
     const vadProbs = [...this.frameBufferSpeechProbabilities];
-    this.reset();
 
-    return this.transcribeAudio(rawAudio, vadProbs, context, "chunk");
+    const result = await this.transcribeAudio(
+      rawAudio,
+      vadProbs,
+      context,
+      "chunk",
+    );
+    this.reset();
+    return result;
   }
 
   private async transcribeAudio(
@@ -375,11 +474,49 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     mode: "chunk" | "final-pass",
     signal?: AbortSignal,
   ): Promise<TranscriptionOutput> {
-    const { audio: speechAudio, segments: speechSegments } =
-      extractSpeechFromVad(rawAudio, vadProbs);
+    const requestedSpeechExtractionMode =
+      context.speechExtractionMode ?? "vad-trim";
+    const rawAudioDurationMs = (rawAudio.length / SAMPLE_RATE) * 1000;
+    let speechExtractionMode = requestedSpeechExtractionMode;
+    let promptMode = context.promptMode ?? "default";
+    let usedRawFallback = false;
+    let speechAudio: Float32Array;
+    let speechSegments: Array<{ start: number; end: number }>;
+
+    if (requestedSpeechExtractionMode === "raw") {
+      speechAudio = rawAudio;
+      speechSegments = segmentForWholeAudio(rawAudio);
+    } else {
+      const extracted = extractSpeechFromVad(rawAudio, vadProbs);
+      speechAudio = extracted.audio;
+      speechSegments = extracted.segments;
+
+      if (
+        speechAudio.length === 0 &&
+        rawAudio.length > 0 &&
+        mode === "chunk" &&
+        context.dictationProfile === "long-form"
+      ) {
+        speechAudio = rawAudio;
+        speechSegments = segmentForWholeAudio(rawAudio);
+        speechExtractionMode = "raw";
+        promptMode = "none";
+        usedRawFallback = true;
+      }
+    }
+
     if (speechAudio.length === 0) {
       logger.transcription.debug(
         `Skipping ${this.options.displayName} transcription - no speech detected by VAD filter`,
+        {
+          rawAudioDurationMs,
+          vadSpeechDurationMs: 0,
+          droppedByVadMs: rawAudioDurationMs,
+          mode,
+          dictationProfile: context.dictationProfile,
+          speechExtractionMode,
+          promptMode,
+        },
       );
       return { text: "" };
     }
@@ -408,12 +545,25 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
       ...(context.vocabulary ?? []),
       ...this.options.hotwords,
     ];
-    const prompt = buildWhisperPrompt({
-      vocabulary,
-      previousTranscription: context.aggregatedTranscription,
-      beforeText:
-        context.accessibilityContext?.context?.textSelection?.preSelectionText,
-    });
+    const speechQuality = {
+      ...getSpeechQuality(vadProbs, speechSegments, speechAudio),
+      requestedLanguage: normalizeLanguageCode(context.language),
+    };
+    const lowInformationSpeech =
+      mode === "chunk" && isLowInformationSpeech(speechQuality);
+    if (lowInformationSpeech) {
+      promptMode = "none";
+    }
+    const prompt =
+      promptMode === "none"
+        ? undefined
+        : buildWhisperPrompt({
+            vocabulary,
+            previousTranscription: context.aggregatedTranscription,
+            beforeText:
+              context.accessibilityContext?.context?.textSelection
+                ?.preSelectionText,
+          });
 
     const formData = new FormData();
     formData.append("file", toWavBlob(speechAudio), "dictation.wav");
@@ -421,7 +571,7 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     formData.append("response_format", "verbose_json");
     formData.append("timestamp_granularities[]", "segment");
     formData.append("temperature", "0");
-    const language = normalizeLanguageCode(context.language);
+    const language = speechQuality.requestedLanguage;
     if (language) {
       formData.append("language", language);
     }
@@ -471,19 +621,28 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
       });
     }
 
-    const speechQuality = {
-      ...getSpeechQuality(vadProbs, speechSegments, speechAudio),
-      requestedLanguage: language,
-    };
-    const text = getFilteredText(body, speechQuality);
+    const text = getFilteredText(body, speechQuality, vocabulary);
+    const vadSpeechDurationMs = speechQuality.speechDurationMs ?? 0;
+    const droppedByVadMs =
+      speechExtractionMode === "vad-trim"
+        ? Math.max(0, rawAudioDurationMs - vadSpeechDurationMs)
+        : 0;
     logger.transcription.info(
       `${this.options.displayName} transcription completed`,
       {
         textLength: text.length,
         duration,
-        audioDurationMs: speechQuality.speechDurationMs,
+        audioDurationMs: vadSpeechDurationMs,
+        rawAudioDurationMs,
+        vadSpeechDurationMs,
+        droppedByVadMs,
         mode,
         dictationProfile: context.dictationProfile,
+        speechExtractionMode,
+        promptMode,
+        promptApplied: Boolean(prompt),
+        lowInformationPromptSuppressed: lowInformationSpeech,
+        usedRawFallback,
       },
     );
 

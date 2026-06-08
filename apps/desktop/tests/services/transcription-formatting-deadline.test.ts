@@ -145,7 +145,7 @@ describe("TranscriptionService formatting deadline", () => {
     ).resolves.toBeNull();
   });
 
-  it("keeps chunk transcript when Groq long-form final pass is shorter", async () => {
+  it("keeps chunk transcript when Groq long-form final pass is much shorter", async () => {
     const service = createTranscriptionServiceForTest() as unknown as {
       readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
       computeVadProbabilitiesForAudio: (
@@ -172,7 +172,7 @@ describe("TranscriptionService formatting deadline", () => {
       flush: vi.fn(),
       reset: vi.fn(),
       transcribeFullAudio: vi.fn().mockResolvedValue({
-        text: "これは短い最終パスです。",
+        text: "短すぎます。",
       }),
     } as unknown as TranscriptionProvider;
     const context = {
@@ -194,12 +194,65 @@ describe("TranscriptionService formatting deadline", () => {
         session,
         audioFilePath: "/tmp/test.wav",
         rawTranscription:
-          "これは十分に長いチャンク結果です。短い final pass では、この内容を置き換えてはいけません。",
+          "これは十分に長いチャンク結果です。短すぎる final pass では、この内容を置き換えてはいけません。これは十分に長いチャンク結果です。短すぎる final pass では、この内容を置き換えてはいけません。",
       }),
     ).resolves.toBeNull();
   });
 
-  it("accepts a Groq long-form final pass only when it adds enough content", async () => {
+  it("accepts a Groq long-form final pass that is slightly shorter", async () => {
+    const service = createTranscriptionServiceForTest() as unknown as {
+      readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
+      computeVadProbabilitiesForAudio: (
+        audioData: Float32Array,
+        signal: AbortSignal,
+      ) => Promise<number[]>;
+      runGroqLongFormFinalPass: (options: {
+        provider: TranscriptionProvider | null;
+        session: StreamingSession;
+        audioFilePath?: string;
+        rawTranscription: string;
+      }) => Promise<string | null>;
+    };
+    service.readWavAsFloat32 = vi
+      .fn()
+      .mockResolvedValue(new Float32Array(16_000 * 13).fill(0.1));
+    service.computeVadProbabilitiesForAudio = vi
+      .fn()
+      .mockResolvedValue(new Array(13 * 32).fill(1));
+
+    const rawTranscription = "あ".repeat(100);
+    const finalPassText = "あ".repeat(98);
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(),
+      flush: vi.fn(),
+      reset: vi.fn(),
+      transcribeFullAudio: vi.fn().mockResolvedValue({ text: finalPassText }),
+    } as unknown as TranscriptionProvider;
+    const context = {
+      ...createDefaultContext("session-1"),
+      isPartial: true,
+      isFinal: false,
+    } satisfies StreamingPipelineContext;
+    const session: StreamingSession = {
+      context,
+      transcriptionResults: [],
+      dictationProfile: "long-form",
+      recordingStartedAt: 1,
+      recordingStoppedAt: 13_001,
+    };
+
+    await expect(
+      service.runGroqLongFormFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription,
+      }),
+    ).resolves.toBe(finalPassText);
+  });
+
+  it("accepts a shorter Groq long-form final pass that removes duplicated text", async () => {
     const service = createTranscriptionServiceForTest() as unknown as {
       readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
       computeVadProbabilitiesForAudio: (
@@ -221,7 +274,7 @@ describe("TranscriptionService formatting deadline", () => {
       .mockResolvedValue(new Array(13 * 32).fill(1));
 
     const finalPassText =
-      "これは十分に長いチャンク結果です。final pass が明確に内容を補っているので採用できます。追加の説明も保持されています。";
+      "YouTubeのテロップを入れるアプリを作ってみてるんだけどかなり工数が減っていい";
     const provider = {
       name: "groq",
       transcribe: vi.fn(),
@@ -248,7 +301,7 @@ describe("TranscriptionService formatting deadline", () => {
         session,
         audioFilePath: "/tmp/test.wav",
         rawTranscription:
-          "これは十分に長いチャンク結果です。final pass が内容を補っている場合だけ採用します。",
+          "YouTubeのテロップを入れるアプリを作ってみてるんだけどかなり工数が減っていい かなり工数が減っていい",
       }),
     ).resolves.toBe(finalPassText);
   });
@@ -303,8 +356,6 @@ describe("TranscriptionService formatting deadline", () => {
         audioFilePath: "/tmp/test.wav",
         rawTranscription: "",
       }),
-    ).resolves.toBe(
-      "チャンクが空だった場合は最終パスの非空結果を採用します。",
-    );
+    ).resolves.toBe("チャンクが空だった場合は最終パスの非空結果を採用します。");
   });
 });

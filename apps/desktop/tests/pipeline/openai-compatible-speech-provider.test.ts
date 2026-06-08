@@ -208,11 +208,16 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
   });
 
   it("supports a full-audio final pass without feeding prior transcript as prompt", async () => {
-    const provider = createProvider({
-      minAudioDurationMs: 1600,
-      maxAudioDurationMs: 4000,
-      minSilenceDurationMs: 384,
-    }, "test-api", undefined, ["Groq"]);
+    const provider = createProvider(
+      {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 4000,
+        minSilenceDurationMs: 384,
+      },
+      "test-api",
+      undefined,
+      ["Groq"],
+    );
 
     const result = await provider.transcribeFullAudio({
       audioData: audioFrames(50),
@@ -255,7 +260,7 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
     expect(file.size).toBe(44 + audioData.length * 2);
   });
 
-  it("suppresses prompts for low-information chunks", async () => {
+  it("keeps context-only prompts for Japanese low-information chunks", async () => {
     const provider = createProvider(
       {
         minAudioDurationMs: 1600,
@@ -270,12 +275,59 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
     const result = await feedFrames(provider, 50, 0, {
       ...baseContext(),
       vocabulary: ["Codex"],
+      aggregatedTranscription: "前の文脈です",
+    });
+
+    expect(result).toEqual({ text: "こんにちは" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    const prompt = formData.get("prompt") as string;
+    expect(prompt).toContain("前の文脈です");
+    expect(prompt).not.toContain("Codex");
+    expect(prompt).not.toContain("Groq");
+  });
+
+  it("continues suppressing prompts for non-Japanese low-information chunks", async () => {
+    const provider = createProvider(
+      {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 1600,
+        minSilenceDurationMs: 384,
+      },
+      "test-api",
+      undefined,
+      ["Groq"],
+    );
+
+    const result = await feedFrames(provider, 50, 0, {
+      ...baseContext(),
+      language: "en",
+      vocabulary: ["Codex"],
+      aggregatedTranscription: "previous context",
     });
 
     expect(result).toEqual({ text: "こんにちは" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     expect(formData.get("prompt")).toBeNull();
+  });
+
+  it("sends raw audio for Japanese low-latency chunks", async () => {
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 1600,
+      minSilenceDurationMs: 384,
+    });
+
+    await feedFrames(provider, 10, 40, {
+      ...baseContext(),
+      dictationProfile: "low-latency",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    const file = formData.get("file") as Blob;
+    expect(file.size).toBe(44 + FRAME_SIZE * 50 * 2);
   });
 
   it("drops vocabulary echo responses", async () => {

@@ -134,6 +134,10 @@ function normalizeLanguageCode(
   return language.split(/[-_]/)[0]?.toLowerCase();
 }
 
+function isJapaneseLanguage(language: string | undefined): boolean {
+  return language === "ja";
+}
+
 function getFilteredText(
   body: OpenAICompatibleTranscriptionResponse | null,
   quality: CompleteTranscriptionQuality,
@@ -247,8 +251,7 @@ function isLowInformationSpeech(
 
   return (
     typeof quality.maxSpeechProbability === "number" &&
-    quality.maxSpeechProbability <=
-      LOW_INFORMATION_MAX_PEAK_SPEECH_PROBABILITY
+    quality.maxSpeechProbability <= LOW_INFORMATION_MAX_PEAK_SPEECH_PROBABILITY
   );
 }
 
@@ -474,8 +477,14 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     mode: "chunk" | "final-pass",
     signal?: AbortSignal,
   ): Promise<TranscriptionOutput> {
+    const requestedLanguage = normalizeLanguageCode(context.language);
+    const isJapaneseLowLatencyChunk =
+      mode === "chunk" &&
+      isJapaneseLanguage(requestedLanguage) &&
+      context.dictationProfile !== "long-form";
     const requestedSpeechExtractionMode =
-      context.speechExtractionMode ?? "vad-trim";
+      context.speechExtractionMode ??
+      (isJapaneseLowLatencyChunk ? "raw" : "vad-trim");
     const rawAudioDurationMs = (rawAudio.length / SAMPLE_RATE) * 1000;
     let speechExtractionMode = requestedSpeechExtractionMode;
     let promptMode = context.promptMode ?? "default";
@@ -547,18 +556,21 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     ];
     const speechQuality = {
       ...getSpeechQuality(vadProbs, speechSegments, speechAudio),
-      requestedLanguage: normalizeLanguageCode(context.language),
+      requestedLanguage,
     };
     const lowInformationSpeech =
       mode === "chunk" && isLowInformationSpeech(speechQuality);
-    if (lowInformationSpeech) {
+    const shouldKeepJapaneseContextPrompt =
+      lowInformationSpeech && isJapaneseLanguage(requestedLanguage);
+    if (lowInformationSpeech && !shouldKeepJapaneseContextPrompt) {
       promptMode = "none";
     }
+    const promptVocabulary = shouldKeepJapaneseContextPrompt ? [] : vocabulary;
     const prompt =
       promptMode === "none"
         ? undefined
         : buildWhisperPrompt({
-            vocabulary,
+            vocabulary: promptVocabulary,
             previousTranscription: context.aggregatedTranscription,
             beforeText:
               context.accessibilityContext?.context?.textSelection
@@ -571,9 +583,8 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     formData.append("response_format", "verbose_json");
     formData.append("timestamp_granularities[]", "segment");
     formData.append("temperature", "0");
-    const language = speechQuality.requestedLanguage;
-    if (language) {
-      formData.append("language", language);
+    if (requestedLanguage) {
+      formData.append("language", requestedLanguage);
     }
     if (prompt) {
       formData.append("prompt", prompt);
@@ -641,7 +652,8 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
         speechExtractionMode,
         promptMode,
         promptApplied: Boolean(prompt),
-        lowInformationPromptSuppressed: lowInformationSpeech,
+        lowInformationPromptSuppressed:
+          lowInformationSpeech && promptMode === "none",
         usedRawFallback,
       },
     );

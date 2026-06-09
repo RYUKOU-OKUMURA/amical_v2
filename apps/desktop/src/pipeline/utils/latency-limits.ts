@@ -2,6 +2,9 @@ export const FORMATTER_TIMEOUT_MS = 2_000;
 export const GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS = 10_000;
 export const GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS = 12_000;
 export const GROQ_LONG_FORM_FINAL_PASS_MIN_RAW_LENGTH = 120;
+export const GROQ_LOW_LATENCY_FINAL_PASS_TIMEOUT_MS = 1_500;
+export const GROQ_LOW_LATENCY_FINAL_PASS_MIN_DURATION_MS = 4_000;
+export const GROQ_LOW_LATENCY_FINAL_PASS_MIN_RAW_LENGTH = 24;
 
 const FORMATTER_MIN_OUTPUT_TOKENS = 384;
 const FORMATTER_MAX_OUTPUT_TOKENS = 3_000;
@@ -49,6 +52,30 @@ export function shouldRunGroqLongFormFinalPass(options: {
       GROQ_LONG_FORM_FINAL_PASS_MIN_RAW_LENGTH ||
     (typeof options.recordingDurationMs === "number" &&
       options.recordingDurationMs >= GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS)
+  );
+}
+
+export function shouldRunGroqLowLatencyFinalPass(options: {
+  providerName?: string | null;
+  hasTranscribeFullAudio: boolean;
+  hasAudioFile: boolean;
+  rawTranscriptionLength: number;
+  recordingDurationMs?: number;
+}): boolean {
+  if (
+    options.providerName !== "groq" ||
+    !options.hasTranscribeFullAudio ||
+    !options.hasAudioFile
+  ) {
+    return false;
+  }
+
+  return (
+    options.rawTranscriptionLength >=
+      GROQ_LOW_LATENCY_FINAL_PASS_MIN_RAW_LENGTH ||
+    (typeof options.recordingDurationMs === "number" &&
+      options.recordingDurationMs >=
+        GROQ_LOW_LATENCY_FINAL_PASS_MIN_DURATION_MS)
   );
 }
 

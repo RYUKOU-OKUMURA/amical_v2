@@ -3,7 +3,7 @@
  */
 
 // Re-export context types from dedicated file
-import { PipelineContext } from "./context";
+import type { FormattingStyle, PipelineContext } from "./context";
 import { GetAccessibilityContextResult } from "@amical/types";
 export { PipelineContext, SharedPipelineData } from "./context";
 
@@ -49,7 +49,7 @@ export interface FormatParams {
   text: string;
   signal?: AbortSignal;
   context: {
-    style?: string;
+    style?: FormattingStyle | string;
     vocabulary?: string[];
     accessibilityContext?: GetAccessibilityContextResult | null;
     previousChunk?: string;

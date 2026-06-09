@@ -23,6 +23,26 @@ function accessibilityContext(
 }
 
 describe("formatter prompt surrounding text context", () => {
+  it("defaults to dialogue mode to preserve dictated speech", () => {
+    const { systemPrompt } = constructFormatterPrompt({
+      accessibilityContext: accessibilityContext("com.apple.TextEdit"),
+    });
+
+    expect(systemPrompt).toContain("Dialogue / セリフモード");
+    expect(systemPrompt).toContain(
+      "Do NOT convert the speech into instructions",
+    );
+  });
+
+  it("includes an explicit organize mode when requested", () => {
+    const { systemPrompt } = constructFormatterPrompt({
+      accessibilityContext: accessibilityContext("com.apple.TextEdit"),
+      style: "organize",
+    });
+
+    expect(systemPrompt).toContain("Organize / 整理モード");
+  });
+
   it("omits unreliable Codex surrounding text from formatter prompts", () => {
     const context = accessibilityContext("com.openai.codex");
 

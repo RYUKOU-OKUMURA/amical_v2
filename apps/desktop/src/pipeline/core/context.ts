@@ -11,12 +11,20 @@ export interface PipelineContext {
 
 import { GetAccessibilityContextResult } from "@amical/types";
 
+export type FormattingStyle =
+  | "dialogue"
+  | "organize"
+  | "summary"
+  | "formal"
+  | "casual"
+  | "technical";
+
 export interface SharedPipelineData {
   vocabulary: string[]; // Custom vocab
   replacements: Map<string, string>; // Custom replacements
   userPreferences: {
     language?: string; // Optional - undefined means auto-detect
-    formattingStyle: "formal" | "casual" | "technical";
+    formattingStyle: FormattingStyle;
   };
   audioMetadata: {
     source: "microphone" | "file" | "stream";
@@ -36,7 +44,7 @@ export function createDefaultContext(sessionId: string): PipelineContext {
       replacements: new Map(),
       userPreferences: {
         language: undefined,
-        formattingStyle: "formal",
+        formattingStyle: "dialogue",
       },
       audioMetadata: {
         source: "microphone",

@@ -54,7 +54,10 @@ import {
   GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS,
   GROQ_LONG_FORM_FINAL_PASS_MIN_RAW_LENGTH,
   GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS,
+  GROQ_LOW_LATENCY_FINAL_PASS_MIN_RAW_LENGTH,
+  GROQ_LOW_LATENCY_FINAL_PASS_TIMEOUT_MS,
   runWithDeadline,
+  shouldRunGroqLowLatencyFinalPass as shouldRunGroqLowLatencyFinalPassByPolicy,
   shouldRunGroqLongFormFinalPass as shouldRunGroqLongFormFinalPassByPolicy,
 } from "../pipeline/utils/latency-limits";
 
@@ -82,6 +85,7 @@ interface CompletedTranscriptionPersistenceJob {
 const AUDIO_FRAME_SIZE = 512;
 const AUDIO_SAMPLE_RATE = 16000;
 const MIN_ACCEPTABLE_FINAL_PASS_LENGTH_RATIO = 0.45;
+const MIN_ACCEPTABLE_LOW_LATENCY_FINAL_PASS_LENGTH_RATIO = 0.55;
 const MIN_FINAL_PASS_SHORT_CLEANUP_RAW_LENGTH = 40;
 const MIN_FINAL_PASS_INFORMATION_LENGTH = 8;
 
@@ -639,15 +643,15 @@ export class TranscriptionService {
         session.transcriptionResults.join(""),
         activeProfile,
       );
-      const longFormFinalPassText = await this.runGroqLongFormFinalPass({
+      const groqFinalPassText = await this.runGroqFinalPass({
         provider: providerForFinalPass,
         session,
         audioFilePath,
         rawTranscription,
       });
-      if (longFormFinalPassText) {
+      if (groqFinalPassText) {
         rawTranscription = this.cleanupForDictationProfile(
-          longFormFinalPassText,
+          groqFinalPassText,
           activeProfile,
         );
       }
@@ -788,11 +792,40 @@ export class TranscriptionService {
     }
 
     const recordingDurationMs =
-      session.recordingStartedAt && session.recordingStoppedAt
+      typeof session.recordingStartedAt === "number" &&
+      typeof session.recordingStoppedAt === "number"
         ? session.recordingStoppedAt - session.recordingStartedAt
         : undefined;
 
     return shouldRunGroqLongFormFinalPassByPolicy({
+      providerName: provider?.name,
+      hasTranscribeFullAudio:
+        typeof provider?.transcribeFullAudio === "function",
+      hasAudioFile: Boolean(audioFilePath),
+      rawTranscriptionLength: rawTranscription.trim().length,
+      recordingDurationMs,
+    });
+  }
+
+  private shouldRunGroqLowLatencyFinalPass(options: {
+    provider: TranscriptionProvider | null;
+    audioFilePath?: string;
+    session: StreamingSession;
+    rawTranscription: string;
+  }): boolean {
+    const { provider, audioFilePath, session, rawTranscription } = options;
+
+    if (session.dictationProfile === "long-form") {
+      return false;
+    }
+
+    const recordingDurationMs =
+      typeof session.recordingStartedAt === "number" &&
+      typeof session.recordingStoppedAt === "number"
+        ? session.recordingStoppedAt - session.recordingStartedAt
+        : undefined;
+
+    return shouldRunGroqLowLatencyFinalPassByPolicy({
       providerName: provider?.name,
       hasTranscribeFullAudio:
         typeof provider?.transcribeFullAudio === "function",
@@ -808,14 +841,34 @@ export class TranscriptionService {
     audioFilePath?: string;
     rawTranscription: string;
   }): Promise<string | null> {
+    return this.runGroqFinalPass(options);
+  }
+
+  private async runGroqFinalPass(options: {
+    provider: TranscriptionProvider | null;
+    session: StreamingSession;
+    audioFilePath?: string;
+    rawTranscription: string;
+  }): Promise<string | null> {
     const { provider, session, audioFilePath, rawTranscription } = options;
+    const dictationProfile = session.dictationProfile ?? "low-latency";
+    const shouldRunFinalPass =
+      dictationProfile === "long-form"
+        ? this.shouldRunGroqLongFormFinalPass({
+            provider,
+            audioFilePath,
+            session,
+            rawTranscription,
+          })
+        : this.shouldRunGroqLowLatencyFinalPass({
+            provider,
+            audioFilePath,
+            session,
+            rawTranscription,
+          });
+
     if (
-      !this.shouldRunGroqLongFormFinalPass({
-        provider,
-        audioFilePath,
-        session,
-        rawTranscription,
-      }) ||
+      !shouldRunFinalPass ||
       !provider?.transcribeFullAudio ||
       !audioFilePath
     ) {
@@ -826,6 +879,7 @@ export class TranscriptionService {
       const audioData = await this.readWavAsFloat32(audioFilePath);
       const audioDurationMs = (audioData.length / AUDIO_SAMPLE_RATE) * 1000;
       if (
+        dictationProfile === "long-form" &&
         rawTranscription.trim().length <
           GROQ_LONG_FORM_FINAL_PASS_MIN_RAW_LENGTH &&
         audioDurationMs < GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS
@@ -834,8 +888,14 @@ export class TranscriptionService {
       }
 
       const result = await runWithDeadline({
-        label: "Groq long-form final pass",
-        timeoutMs: GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS,
+        label:
+          dictationProfile === "long-form"
+            ? "Groq long-form final pass"
+            : "Groq low-latency final pass",
+        timeoutMs:
+          dictationProfile === "long-form"
+            ? GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS
+            : GROQ_LOW_LATENCY_FINAL_PASS_TIMEOUT_MS,
         operation: async (signal) => {
           const speechProbabilities =
             await this.computeVadProbabilitiesForAudio(audioData, signal);
@@ -850,7 +910,7 @@ export class TranscriptionService {
                 session.context.sharedData.accessibilityContext,
               language: session.context.sharedData.userPreferences?.language,
               formattingEnabled: false,
-              dictationProfile: session.dictationProfile,
+              dictationProfile,
               promptMode: "none",
               speechExtractionMode: "raw",
             },
@@ -860,12 +920,12 @@ export class TranscriptionService {
 
       const finalPassText = this.cleanupForDictationProfile(
         result.text.trim(),
-        session.dictationProfile ?? "low-latency",
+        dictationProfile,
       );
       if (!finalPassText) {
         logger.transcription.info(
-          "Groq long-form final pass returned empty text; keeping chunk transcript",
-          { sessionId: session.context.sessionId },
+          "Groq final pass returned empty text; keeping chunk transcript",
+          { sessionId: session.context.sessionId, dictationProfile },
         );
         return null;
       }
@@ -876,9 +936,10 @@ export class TranscriptionService {
         finalPassText.length <= MIN_FINAL_PASS_INFORMATION_LENGTH
       ) {
         logger.transcription.info(
-          "Groq long-form final pass became too short after cleanup; keeping chunk transcript",
+          "Groq final pass became too short after cleanup; keeping chunk transcript",
           {
             sessionId: session.context.sessionId,
+            dictationProfile,
             rawLength,
             finalPassLength: finalPassText.length,
           },
@@ -887,18 +948,28 @@ export class TranscriptionService {
       }
 
       if (
-        rawLength >= 80 &&
+        rawLength >=
+          (dictationProfile === "long-form"
+            ? 80
+            : GROQ_LOW_LATENCY_FINAL_PASS_MIN_RAW_LENGTH) &&
         finalPassText.length <
-          rawLength * MIN_ACCEPTABLE_FINAL_PASS_LENGTH_RATIO
+          rawLength *
+            (dictationProfile === "long-form"
+              ? MIN_ACCEPTABLE_FINAL_PASS_LENGTH_RATIO
+              : MIN_ACCEPTABLE_LOW_LATENCY_FINAL_PASS_LENGTH_RATIO)
       ) {
         logger.transcription.info(
-          "Groq long-form final pass was much shorter than chunk transcript; keeping chunk transcript",
+          "Groq final pass was much shorter than chunk transcript; keeping chunk transcript",
           {
             sessionId: session.context.sessionId,
+            dictationProfile,
             rawLength,
             finalPassLength: finalPassText.length,
             minFinalPassLength: Math.ceil(
-              rawLength * MIN_ACCEPTABLE_FINAL_PASS_LENGTH_RATIO,
+              rawLength *
+                (dictationProfile === "long-form"
+                  ? MIN_ACCEPTABLE_FINAL_PASS_LENGTH_RATIO
+                  : MIN_ACCEPTABLE_LOW_LATENCY_FINAL_PASS_LENGTH_RATIO),
             ),
           },
         );
@@ -907,9 +978,10 @@ export class TranscriptionService {
 
       if (shouldPreservePunctuatedTranscript(rawTranscription, finalPassText)) {
         logger.transcription.info(
-          "Groq long-form final pass lost punctuation; keeping chunk transcript",
+          "Groq final pass lost punctuation; keeping chunk transcript",
           {
             sessionId: session.context.sessionId,
+            dictationProfile,
             originalLength: rawLength,
             finalPassLength: finalPassText.length,
           },
@@ -917,8 +989,9 @@ export class TranscriptionService {
         return null;
       }
 
-      logger.transcription.info("Applied Groq long-form final pass", {
+      logger.transcription.info("Applied Groq final pass", {
         sessionId: session.context.sessionId,
+        dictationProfile,
         audioDurationMs,
         chunkCount: session.transcriptionResults.length,
         originalLength: rawLength,
@@ -927,9 +1000,10 @@ export class TranscriptionService {
       return finalPassText;
     } catch (error) {
       logger.transcription.warn(
-        "Groq long-form final pass failed; keeping chunk transcript",
+        "Groq final pass failed; keeping chunk transcript",
         {
           sessionId: session.context.sessionId,
+          dictationProfile,
           error: error instanceof Error ? error.message : String(error),
         },
       );

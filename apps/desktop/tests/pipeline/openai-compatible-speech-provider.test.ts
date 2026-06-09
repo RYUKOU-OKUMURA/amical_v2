@@ -135,12 +135,12 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
 
   it("allows Groq-tuned low-latency timing to transcribe after a shorter silence window", async () => {
     const provider = createProvider({
-      minAudioDurationMs: 1600,
+      minAudioDurationMs: 2200,
       maxAudioDurationMs: 4000,
-      minSilenceDurationMs: 384,
+      minSilenceDurationMs: 512,
     });
 
-    const result = await feedFrames(provider, 50, 12);
+    const result = await feedFrames(provider, 69, 16);
 
     expect(result).toEqual({ text: "こんにちは" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -149,9 +149,9 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
   it("keeps Groq long-form timing buffered through the low-latency silence window", async () => {
     const provider = createProvider(
       {
-        minAudioDurationMs: 1600,
+        minAudioDurationMs: 2200,
         maxAudioDurationMs: 4000,
-        minSilenceDurationMs: 384,
+        minSilenceDurationMs: 512,
       },
       "test-api",
       {
@@ -173,9 +173,9 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
   it("transcribes Groq long-form timing after a longer pause", async () => {
     const provider = createProvider(
       {
-        minAudioDurationMs: 1600,
+        minAudioDurationMs: 2200,
         maxAudioDurationMs: 4000,
-        minSilenceDurationMs: 384,
+        minSilenceDurationMs: 512,
       },
       "test-api",
       {

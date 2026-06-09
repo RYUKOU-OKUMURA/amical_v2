@@ -12,9 +12,9 @@ const GROQ_DICTATION_HOTWORDS = [
 ];
 
 const GROQ_LOW_LATENCY_TIMING = {
-  minAudioDurationMs: 1600,
+  minAudioDurationMs: 2200,
   maxAudioDurationMs: 4000,
-  minSilenceDurationMs: 384,
+  minSilenceDurationMs: 512,
 };
 
 const GROQ_LONG_FORM_TIMING = {
@@ -29,7 +29,7 @@ export class GroqProvider extends OpenAICompatibleSpeechProvider {
       name: "groq",
       displayName: "Groq",
       defaultBaseURL: "https://api.groq.com/openai/v1",
-      defaultModel: "whisper-large-v3-turbo",
+      defaultModel: "whisper-large-v3",
       modelPrefix: "groq-",
       hotwords: GROQ_DICTATION_HOTWORDS,
       timing: GROQ_LOW_LATENCY_TIMING,

@@ -358,4 +358,207 @@ describe("TranscriptionService formatting deadline", () => {
       }),
     ).resolves.toBe("チャンクが空だった場合は最終パスの非空結果を採用します。");
   });
+
+  it("skips Groq low-latency final pass for short dictations", async () => {
+    const service = createTranscriptionServiceForTest() as unknown as {
+      runGroqFinalPass: (options: {
+        provider: TranscriptionProvider | null;
+        session: StreamingSession;
+        audioFilePath?: string;
+        rawTranscription: string;
+      }) => Promise<string | null>;
+    };
+
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(),
+      flush: vi.fn(),
+      reset: vi.fn(),
+      transcribeFullAudio: vi.fn().mockResolvedValue({ text: "unused" }),
+    } as unknown as TranscriptionProvider;
+    const context = {
+      ...createDefaultContext("session-1"),
+      isPartial: true,
+      isFinal: false,
+    } satisfies StreamingPipelineContext;
+    const session: StreamingSession = {
+      context,
+      transcriptionResults: [],
+      dictationProfile: "low-latency",
+      recordingStartedAt: 1,
+      recordingStoppedAt: 3_001,
+    };
+
+    await expect(
+      service.runGroqFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription: "短い入力です",
+      }),
+    ).resolves.toBeNull();
+    expect(provider.transcribeFullAudio).not.toHaveBeenCalled();
+  });
+
+  it("accepts Groq low-latency final pass for longer dictations", async () => {
+    const service = createTranscriptionServiceForTest() as unknown as {
+      readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
+      computeVadProbabilitiesForAudio: (
+        audioData: Float32Array,
+        signal: AbortSignal,
+      ) => Promise<number[]>;
+      runGroqFinalPass: (options: {
+        provider: TranscriptionProvider | null;
+        session: StreamingSession;
+        audioFilePath?: string;
+        rawTranscription: string;
+      }) => Promise<string | null>;
+    };
+    service.readWavAsFloat32 = vi
+      .fn()
+      .mockResolvedValue(new Float32Array(16_000 * 9).fill(0.1));
+    service.computeVadProbabilitiesForAudio = vi
+      .fn()
+      .mockResolvedValue(new Array(9 * 32).fill(1));
+
+    const finalPassText =
+      "今の入力速度は維持したまま文字起こしの精度をもう少し上げたいです。";
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(),
+      flush: vi.fn(),
+      reset: vi.fn(),
+      transcribeFullAudio: vi.fn().mockResolvedValue({ text: finalPassText }),
+    } as unknown as TranscriptionProvider;
+    const context = {
+      ...createDefaultContext("session-1"),
+      isPartial: true,
+      isFinal: false,
+    } satisfies StreamingPipelineContext;
+    const session: StreamingSession = {
+      context,
+      transcriptionResults: [],
+      dictationProfile: "low-latency",
+      recordingStartedAt: 1,
+      recordingStoppedAt: 9_001,
+    };
+
+    await expect(
+      service.runGroqFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription:
+          "今の入力速度は維持したまま文字起こしの精度をもう少し上げたいです",
+      }),
+    ).resolves.toBe(finalPassText);
+  });
+
+  it("accepts a shorter Groq low-latency final pass that removes chunk noise", async () => {
+    const service = createTranscriptionServiceForTest() as unknown as {
+      readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
+      computeVadProbabilitiesForAudio: (
+        audioData: Float32Array,
+        signal: AbortSignal,
+      ) => Promise<number[]>;
+      runGroqFinalPass: (options: {
+        provider: TranscriptionProvider | null;
+        session: StreamingSession;
+        audioFilePath?: string;
+        rawTranscription: string;
+      }) => Promise<string | null>;
+    };
+    service.readWavAsFloat32 = vi
+      .fn()
+      .mockResolvedValue(new Float32Array(16_000 * 12).fill(0.1));
+    service.computeVadProbabilitiesForAudio = vi
+      .fn()
+      .mockResolvedValue(new Array(12 * 32).fill(1));
+
+    const finalPassText =
+      "トグルで要点モードと整理モード、セリフモードを切り替えると思うんだけど、デフォルトをセリフモードにしておいてもらっていい?";
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(),
+      flush: vi.fn(),
+      reset: vi.fn(),
+      transcribeFullAudio: vi.fn().mockResolvedValue({ text: finalPassText }),
+    } as unknown as TranscriptionProvider;
+    const context = {
+      ...createDefaultContext("session-1"),
+      isPartial: true,
+      isFinal: false,
+    } satisfies StreamingPipelineContext;
+    const session: StreamingSession = {
+      context,
+      transcriptionResults: [],
+      dictationProfile: "low-latency",
+      recordingStartedAt: 1,
+      recordingStoppedAt: 12_001,
+    };
+
+    await expect(
+      service.runGroqFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription:
+          "あとToggleで要点モードと整理モードを選択してください。 セリフモードを切り替えると思うんだけど、 デフォルトをセリフモードに変えてみます。セリフモードにしておいてもらっていい?",
+      }),
+    ).resolves.toBe(finalPassText);
+  });
+
+  it("keeps chunk transcript when Groq low-latency final pass is much shorter", async () => {
+    const service = createTranscriptionServiceForTest() as unknown as {
+      readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
+      computeVadProbabilitiesForAudio: (
+        audioData: Float32Array,
+        signal: AbortSignal,
+      ) => Promise<number[]>;
+      runGroqFinalPass: (options: {
+        provider: TranscriptionProvider | null;
+        session: StreamingSession;
+        audioFilePath?: string;
+        rawTranscription: string;
+      }) => Promise<string | null>;
+    };
+    service.readWavAsFloat32 = vi
+      .fn()
+      .mockResolvedValue(new Float32Array(16_000 * 9).fill(0.1));
+    service.computeVadProbabilitiesForAudio = vi
+      .fn()
+      .mockResolvedValue(new Array(9 * 32).fill(1));
+
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(),
+      flush: vi.fn(),
+      reset: vi.fn(),
+      transcribeFullAudio: vi.fn().mockResolvedValue({
+        text: "短すぎます。",
+      }),
+    } as unknown as TranscriptionProvider;
+    const context = {
+      ...createDefaultContext("session-1"),
+      isPartial: true,
+      isFinal: false,
+    } satisfies StreamingPipelineContext;
+    const session: StreamingSession = {
+      context,
+      transcriptionResults: [],
+      dictationProfile: "low-latency",
+      recordingStartedAt: 1,
+      recordingStoppedAt: 9_001,
+    };
+
+    await expect(
+      service.runGroqFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription:
+          "これは十分に長い通常入力のチャンク結果です。最終パスが短すぎる場合は採用しません。これは十分に長い通常入力のチャンク結果です。",
+      }),
+    ).resolves.toBeNull();
+  });
 });

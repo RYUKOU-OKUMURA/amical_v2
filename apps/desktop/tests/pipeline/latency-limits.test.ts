@@ -20,8 +20,8 @@ describe("latency limits", () => {
     expect(GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS).toBe(10_000);
   });
 
-  it("keeps Groq low-latency final pass opportunistic", () => {
-    expect(GROQ_LOW_LATENCY_FINAL_PASS_TIMEOUT_MS).toBe(1_500);
+  it("gives Groq low-latency final pass a network-only deadline", () => {
+    expect(GROQ_LOW_LATENCY_FINAL_PASS_TIMEOUT_MS).toBe(5_000);
   });
 
   it("resolves operations that finish before the deadline", async () => {

@@ -145,6 +145,7 @@ export interface AppSettingsData {
     silenceThreshold: number;
     maxRecordingDuration: number;
     preferredMicrophoneName?: string;
+    audioPreprocessingEnabled?: boolean;
   };
   shortcuts?: {
     pushToTalk?: number[];

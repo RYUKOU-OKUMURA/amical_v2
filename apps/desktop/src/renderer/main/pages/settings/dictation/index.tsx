@@ -5,6 +5,7 @@ import {
   PunctuationSettings,
   MicrophoneSettings,
   FormattingSettings,
+  VoiceProcessingSettings,
 } from "./components";
 import { useTranslation } from "react-i18next";
 
@@ -25,6 +26,8 @@ export default function DictationSettingsPage() {
           <PunctuationSettings />
           <Separator />
           <MicrophoneSettings />
+          <Separator />
+          <VoiceProcessingSettings />
           <Separator />
           {/* <SpeechToTextSettings
             speechModels={speechModels}

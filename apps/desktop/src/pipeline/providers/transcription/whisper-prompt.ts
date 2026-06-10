@@ -27,6 +27,30 @@ export const MAX_PREVIOUS_CONTEXT_BYTES = 60;
  * too little loses punctuation/capitalization continuity. */
 export const DEFAULT_PREVIOUS_WORD_COUNT = 10;
 
+/** CJK text has no spaces, so the word-based tail extraction degenerates to
+ * "whole text as one word" and the 60-byte cap keeps only ~20 characters.
+ * Use a character-based tail with a larger byte budget instead: 210 bytes
+ * ≈ 70 Japanese characters (3 bytes each), well inside MAX_PROMPT_BYTES. */
+export const MAX_PREVIOUS_CONTEXT_BYTES_CJK = 210;
+export const DEFAULT_PREVIOUS_CJK_CHAR_COUNT = 70;
+
+/** `previousTranscription` can be the whole session transcript, but the
+ * prompt only ever keeps a short tail. Bound all scanning (CJK detection,
+ * word splitting) to this many trailing UTF-16 units so prompt building
+ * stays O(1) as the session grows. Far larger than any tail we keep. */
+const PREVIOUS_CONTEXT_SAMPLE_CHARS = 400;
+
+const CJK_PATTERN =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+/** True when ≥30% of code points are CJK — mixed JP+ASCII dictation counts. */
+function isCjkDominant(text: string): boolean {
+  const chars = Array.from(text);
+  if (chars.length === 0) return false;
+  const cjkCount = chars.filter((c) => CJK_PATTERN.test(c)).length;
+  return cjkCount / chars.length >= 0.3;
+}
+
 export function utf8ByteLength(s: string): number {
   return new TextEncoder().encode(s).length;
 }
@@ -99,19 +123,31 @@ export function buildWhisperPrompt(
 
   const source = opts.previousTranscription || opts.beforeText;
   if (source) {
-    const words = source.trim().split(/\s+/).filter(Boolean);
-    const n = opts.previousWordCount ?? DEFAULT_PREVIOUS_WORD_COUNT;
-    const tailWords = words.slice(-n);
-    while (
-      tailWords.length > 1 &&
-      utf8ByteLength(tailWords.join(" ")) > MAX_PREVIOUS_CONTEXT_BYTES
-    ) {
-      tailWords.shift();
-    }
+    const sample = source.trim().slice(-PREVIOUS_CONTEXT_SAMPLE_CHARS);
+    let tail: string;
 
-    let tail = tailWords.join(" ");
-    if (utf8ByteLength(tail) > MAX_PREVIOUS_CONTEXT_BYTES) {
-      tail = truncateUtf8Tail(tail, MAX_PREVIOUS_CONTEXT_BYTES);
+    if (isCjkDominant(sample)) {
+      tail = Array.from(sample)
+        .slice(-DEFAULT_PREVIOUS_CJK_CHAR_COUNT)
+        .join("");
+      if (utf8ByteLength(tail) > MAX_PREVIOUS_CONTEXT_BYTES_CJK) {
+        tail = truncateUtf8Tail(tail, MAX_PREVIOUS_CONTEXT_BYTES_CJK);
+      }
+    } else {
+      const words = sample.split(/\s+/).filter(Boolean);
+      const n = opts.previousWordCount ?? DEFAULT_PREVIOUS_WORD_COUNT;
+      const tailWords = words.slice(-n);
+      while (
+        tailWords.length > 1 &&
+        utf8ByteLength(tailWords.join(" ")) > MAX_PREVIOUS_CONTEXT_BYTES
+      ) {
+        tailWords.shift();
+      }
+
+      tail = tailWords.join(" ");
+      if (utf8ByteLength(tail) > MAX_PREVIOUS_CONTEXT_BYTES) {
+        tail = truncateUtf8Tail(tail, MAX_PREVIOUS_CONTEXT_BYTES);
+      }
     }
     if (tail) parts.push(tail);
   }

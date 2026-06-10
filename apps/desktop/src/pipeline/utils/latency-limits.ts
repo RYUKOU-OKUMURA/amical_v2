@@ -2,9 +2,17 @@ export const FORMATTER_TIMEOUT_MS = 2_000;
 export const GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS = 10_000;
 export const GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS = 12_000;
 export const GROQ_LONG_FORM_FINAL_PASS_MIN_RAW_LENGTH = 120;
-export const GROQ_LOW_LATENCY_FINAL_PASS_TIMEOUT_MS = 1_500;
+// Bounds only the Groq HTTP roundtrip — VAD probabilities are reused from
+// streaming (or recomputed before the deadline starts), so the budget no
+// longer absorbs frame-by-frame ONNX inference. 5s lets the higher-accuracy
+// full-audio result land even on network spikes while keeping worst-case
+// paste delay tolerable; the chunk transcript remains the fallback.
+export const GROQ_LOW_LATENCY_FINAL_PASS_TIMEOUT_MS = 5_000;
 export const GROQ_LOW_LATENCY_FINAL_PASS_MIN_DURATION_MS = 4_000;
 export const GROQ_LOW_LATENCY_FINAL_PASS_MIN_RAW_LENGTH = 24;
+// Retry is user-initiated and has no paste-latency pressure; match the
+// provider's own 30s HTTP timeout.
+export const RETRY_FULL_AUDIO_TIMEOUT_MS = 30_000;
 
 const FORMATTER_MIN_OUTPUT_TOKENS = 384;
 const FORMATTER_MAX_OUTPUT_TOKENS = 3_000;

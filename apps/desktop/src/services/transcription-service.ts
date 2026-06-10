@@ -56,6 +56,7 @@ import {
   GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS,
   GROQ_LOW_LATENCY_FINAL_PASS_MIN_RAW_LENGTH,
   GROQ_LOW_LATENCY_FINAL_PASS_TIMEOUT_MS,
+  RETRY_FULL_AUDIO_TIMEOUT_MS,
   runWithDeadline,
   shouldRunGroqLowLatencyFinalPass as shouldRunGroqLowLatencyFinalPassByPolicy,
   shouldRunGroqLongFormFinalPass as shouldRunGroqLongFormFinalPassByPolicy,
@@ -444,6 +445,12 @@ export class TranscriptionService {
         dictationProfile,
       );
 
+      // Accumulate per-frame VAD probabilities so the final pass can reuse
+      // them instead of recomputing VAD over the whole recording.
+      if (audioChunk.length > 0) {
+        (session.speechProbabilities ??= []).push(speechProbability);
+      }
+
       // Direct frame to Whisper - it will handle aggregation and VAD internally
       const previousChunk = this.preparePromptContext(
         session.transcriptionResults.length > 0
@@ -471,7 +478,7 @@ export class TranscriptionService {
           accessibilityContext: session.context.sharedData.accessibilityContext,
           previousChunk,
           aggregatedTranscription,
-          language: session.context.sharedData.userPreferences?.language,
+          language: this.resolveSessionLanguage(session),
           formattingEnabled:
             session.context.metadata.get("cloudFormattingEnabled") === true,
           dictationProfile: activeProfile,
@@ -614,7 +621,7 @@ export class TranscriptionService {
           accessibilityContext: session.context.sharedData.accessibilityContext,
           previousChunk,
           aggregatedTranscription,
-          language: session.context.sharedData.userPreferences?.language,
+          language: this.resolveSessionLanguage(session),
           formattingEnabled: shouldUseCloudFormatting && usedCloudProvider,
           dictationProfile: activeProfile,
         });
@@ -887,6 +894,14 @@ export class TranscriptionService {
         return null;
       }
 
+      // Reuse the VAD probabilities accumulated during streaming. Only
+      // recompute (outside the deadline) when they are missing, so the
+      // deadline budgets the Groq roundtrip alone.
+      const speechProbabilities =
+        session.speechProbabilities && session.speechProbabilities.length > 0
+          ? session.speechProbabilities
+          : await this.computeVadProbabilitiesForAudio(audioData);
+
       const result = await runWithDeadline({
         label:
           dictationProfile === "long-form"
@@ -896,10 +911,8 @@ export class TranscriptionService {
           dictationProfile === "long-form"
             ? GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS
             : GROQ_LOW_LATENCY_FINAL_PASS_TIMEOUT_MS,
-        operation: async (signal) => {
-          const speechProbabilities =
-            await this.computeVadProbabilitiesForAudio(audioData, signal);
-          return provider.transcribeFullAudio!({
+        operation: (signal) =>
+          provider.transcribeFullAudio!({
             audioData,
             speechProbabilities,
             signal,
@@ -908,14 +921,13 @@ export class TranscriptionService {
               vocabulary: session.context.sharedData.vocabulary,
               accessibilityContext:
                 session.context.sharedData.accessibilityContext,
-              language: session.context.sharedData.userPreferences?.language,
+              language: this.resolveSessionLanguage(session),
               formattingEnabled: false,
               dictationProfile,
               promptMode: "none",
               speechExtractionMode: "raw",
             },
-          });
-        },
+          }),
       });
 
       const finalPassText = this.cleanupForDictationProfile(
@@ -1441,7 +1453,6 @@ export class TranscriptionService {
 
   private async computeVadProbabilitiesForAudio(
     audioData: Float32Array,
-    signal?: AbortSignal,
   ): Promise<number[]> {
     const frames = this.splitAudioFrames(audioData);
     if (!this.vadService) {
@@ -1452,12 +1463,6 @@ export class TranscriptionService {
     await this.vadMutex.runExclusive(async () => {
       this.vadService!.reset();
       for (const frame of frames) {
-        if (signal?.aborted) {
-          throw new DeadlineTimeoutError(
-            "Groq long-form final pass VAD",
-            GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS,
-          );
-        }
         const result = await this.vadService!.processAudioFrame(frame);
         vadProbs.push(result.probability);
       }
@@ -1553,57 +1558,94 @@ export class TranscriptionService {
       usedCloudProvider = provider.name === "amical-cloud";
       provider.reset();
 
-      // Feed each frame with its computed VAD probability
-      for (let i = 0; i < frames.length; i++) {
-        const previousChunk =
-          transcriptionResults.length > 0
-            ? transcriptionResults[transcriptionResults.length - 1]
-            : undefined;
-        const aggregatedTranscription = transcriptionResults.join("");
+      // User's explicit language wins; for auto-detect, reuse the language
+      // detected when the recording was first transcribed.
+      const retryLanguage =
+        language && language !== "auto" ? language : detectedLanguage;
 
-        const chunkResult = await provider.transcribe({
-          audioData: frames[i],
-          speechProbability: vadProbs[i],
-          context: {
-            sessionId: retrySessionId,
-            vocabulary,
-            language,
-            previousChunk,
-            aggregatedTranscription: aggregatedTranscription || undefined,
-            formattingEnabled: shouldUseCloudFormatting && usedCloudProvider,
-          },
+      if (typeof provider.transcribeFullAudio === "function") {
+        // Retry has no latency pressure: one whole-audio pass avoids the
+        // chunk-boundary errors of the streaming path.
+        const result = await runWithDeadline({
+          label: "Retry full-audio transcription",
+          timeoutMs: RETRY_FULL_AUDIO_TIMEOUT_MS,
+          operation: (signal) =>
+            provider.transcribeFullAudio!({
+              audioData,
+              speechProbabilities: vadProbs,
+              signal,
+              context: {
+                sessionId: retrySessionId,
+                vocabulary,
+                language: retryLanguage,
+                formattingEnabled: false,
+                promptMode: "default",
+                speechExtractionMode: "raw",
+              },
+            }),
         });
         detectedLanguage = this.mergeDetectedLanguage(
           detectedLanguage,
-          chunkResult.detectedLanguage,
+          result.detectedLanguage,
+        );
+        this.accumulateTranscriptionResult(
+          transcriptionResults,
+          result.text,
+          usedCloudProvider,
+        );
+      } else {
+        // Feed each frame with its computed VAD probability
+        for (let i = 0; i < frames.length; i++) {
+          const previousChunk =
+            transcriptionResults.length > 0
+              ? transcriptionResults[transcriptionResults.length - 1]
+              : undefined;
+          const aggregatedTranscription = transcriptionResults.join("");
+
+          const chunkResult = await provider.transcribe({
+            audioData: frames[i],
+            speechProbability: vadProbs[i],
+            context: {
+              sessionId: retrySessionId,
+              vocabulary,
+              language: retryLanguage,
+              previousChunk,
+              aggregatedTranscription: aggregatedTranscription || undefined,
+              formattingEnabled: shouldUseCloudFormatting && usedCloudProvider,
+            },
+          });
+          detectedLanguage = this.mergeDetectedLanguage(
+            detectedLanguage,
+            chunkResult.detectedLanguage,
+          );
+
+          this.accumulateTranscriptionResult(
+            transcriptionResults,
+            chunkResult.text,
+            usedCloudProvider,
+          );
+        }
+
+        // Flush to get remaining buffered audio
+        const aggregatedTranscription = transcriptionResults.join("");
+        const finalResult = await provider.flush({
+          sessionId: retrySessionId,
+          vocabulary,
+          language: retryLanguage,
+          aggregatedTranscription: aggregatedTranscription || undefined,
+          formattingEnabled: shouldUseCloudFormatting && usedCloudProvider,
+        });
+        detectedLanguage = this.mergeDetectedLanguage(
+          detectedLanguage,
+          finalResult.detectedLanguage,
         );
 
         this.accumulateTranscriptionResult(
           transcriptionResults,
-          chunkResult.text,
+          finalResult.text,
           usedCloudProvider,
         );
       }
-
-      // Flush to get remaining buffered audio
-      const aggregatedTranscription = transcriptionResults.join("");
-      const finalResult = await provider.flush({
-        sessionId: retrySessionId,
-        vocabulary,
-        language,
-        aggregatedTranscription: aggregatedTranscription || undefined,
-        formattingEnabled: shouldUseCloudFormatting && usedCloudProvider,
-      });
-      detectedLanguage = this.mergeDetectedLanguage(
-        detectedLanguage,
-        finalResult.detectedLanguage,
-      );
-
-      this.accumulateTranscriptionResult(
-        transcriptionResults,
-        finalResult.text,
-        usedCloudProvider,
-      );
     } finally {
       this.transcriptionMutex.release();
     }
@@ -1757,6 +1799,21 @@ export class TranscriptionService {
         ? applyLongFormPromptCleanup(text)
         : this.cleanupForDictationProfile(text, dictationProfile);
     return cleaned.trim() || undefined;
+  }
+
+  /**
+   * Language hint for decoding: the user's explicit choice wins; otherwise
+   * carry the latest detected language so later chunks of an auto-detect
+   * session don't re-detect (short chunks are easily misdetected).
+   */
+  private resolveSessionLanguage(
+    session: StreamingSession,
+  ): string | undefined {
+    const preferred = session.context.sharedData.userPreferences?.language;
+    if (preferred && preferred !== "auto") {
+      return preferred;
+    }
+    return this.sanitizeDetectedLanguage(session.detectedLanguage);
   }
 
   private sanitizeDetectedLanguage(

@@ -111,6 +111,7 @@ const RecordingSettingsSchema = z.object({
   silenceThreshold: z.number().optional(),
   maxRecordingDuration: z.number().optional(),
   preferredMicrophoneName: z.string().optional(),
+  audioPreprocessingEnabled: z.boolean().optional(),
 });
 
 export const settingsRouter = createRouter({
@@ -605,7 +606,9 @@ export const settingsRouter = createRouter({
       }
 
       const message =
-        error instanceof Error ? error.message : "Failed to refresh Groq rate limit";
+        error instanceof Error
+          ? error.message
+          : "Failed to refresh Groq rate limit";
       throw new TRPCError({
         code: "BAD_REQUEST",
         message,

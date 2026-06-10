@@ -330,7 +330,7 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
     expect(file.size).toBe(44 + FRAME_SIZE * 50 * 2);
   });
 
-  it("drops vocabulary echo responses", async () => {
+  it("keeps vocabulary-matching text when speech quality is strong", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -357,6 +357,101 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
     );
 
     const result = await feedFrames(provider, 50, 12, {
+      ...baseContext(),
+      vocabulary: ["Codex", "AquaVoice"],
+    });
+
+    expect(result).toEqual({ text: "Codex, AquaVoice, Groq, API" });
+  });
+
+  it("normalizes verbose_json language names to ISO codes", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => ({
+        text: "こんにちは",
+        language: "japanese",
+        segments: [{ text: "こんにちは", no_speech_prob: 0.01 }],
+      }),
+    });
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+
+    const result = await feedFrames(provider, 50, 12);
+
+    expect(result).toEqual({ text: "こんにちは", detectedLanguage: "ja" });
+  });
+
+  it("passes through ISO language codes and omits language for empty text", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => ({
+        text: "hello there",
+        language: "en",
+        segments: [{ text: "hello there", no_speech_prob: 0.01 }],
+      }),
+    });
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+
+    const result = await feedFrames(provider, 50, 12, {
+      ...baseContext(),
+      language: "en",
+    });
+    expect(result).toEqual({ text: "hello there", detectedLanguage: "en" });
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => ({
+        text: "",
+        language: "japanese",
+        segments: [],
+      }),
+    });
+    const emptyResult = await feedFrames(provider, 50, 12);
+    expect(emptyResult.text).toBe("");
+    expect(emptyResult.detectedLanguage).toBeUndefined();
+  });
+
+  it("drops vocabulary echo responses on low-information audio", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => ({
+        text: "Codex, AquaVoice, Groq, API",
+        segments: [
+          {
+            text: "Codex, AquaVoice, Groq, API",
+            no_speech_prob: 0.01,
+          },
+        ],
+      }),
+    });
+    const provider = createProvider(
+      {
+        minAudioDurationMs: 1600,
+        maxAudioDurationMs: 4000,
+        minSilenceDurationMs: 384,
+      },
+      "test-api",
+      undefined,
+      ["Groq", "API"],
+    );
+
+    // Short speech burst followed by long silence → low-information audio
+    const result = await feedFrames(provider, 10, 52, {
       ...baseContext(),
       vocabulary: ["Codex", "AquaVoice"],
     });

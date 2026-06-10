@@ -561,4 +561,213 @@ describe("TranscriptionService formatting deadline", () => {
       }),
     ).resolves.toBeNull();
   });
+
+  it("reuses streamed VAD probabilities without recomputing them", async () => {
+    const service = createTranscriptionServiceForTest() as unknown as {
+      readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
+      computeVadProbabilitiesForAudio: (
+        audioData: Float32Array,
+        signal?: AbortSignal,
+      ) => Promise<number[]>;
+      runGroqFinalPass: (options: {
+        provider: TranscriptionProvider | null;
+        session: StreamingSession;
+        audioFilePath?: string;
+        rawTranscription: string;
+      }) => Promise<string | null>;
+    };
+    service.readWavAsFloat32 = vi
+      .fn()
+      .mockResolvedValue(new Float32Array(16_000 * 9).fill(0.1));
+    service.computeVadProbabilitiesForAudio = vi
+      .fn()
+      .mockResolvedValue(new Array(9 * 32).fill(1));
+
+    const finalPassText =
+      "今の入力速度は維持したまま文字起こしの精度をもう少し上げたいです。";
+    const transcribeFullAudio = vi
+      .fn()
+      .mockResolvedValue({ text: finalPassText });
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(),
+      flush: vi.fn(),
+      reset: vi.fn(),
+      transcribeFullAudio,
+    } as unknown as TranscriptionProvider;
+    const context = {
+      ...createDefaultContext("session-1"),
+      isPartial: true,
+      isFinal: false,
+    } satisfies StreamingPipelineContext;
+    const streamedProbabilities = new Array(9 * 32).fill(0.8);
+    const session: StreamingSession = {
+      context,
+      transcriptionResults: [],
+      dictationProfile: "low-latency",
+      recordingStartedAt: 1,
+      recordingStoppedAt: 9_001,
+      speechProbabilities: streamedProbabilities,
+    };
+
+    await expect(
+      service.runGroqFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription:
+          "今の入力速度は維持したまま文字起こしの精度をもう少し上げたいです",
+      }),
+    ).resolves.toBe(finalPassText);
+
+    expect(service.computeVadProbabilitiesForAudio).not.toHaveBeenCalled();
+    expect(transcribeFullAudio).toHaveBeenCalledWith(
+      expect.objectContaining({ speechProbabilities: streamedProbabilities }),
+    );
+  });
+
+  it("carries the detected language into the final pass when language is auto", async () => {
+    const service = createTranscriptionServiceForTest() as unknown as {
+      readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
+      computeVadProbabilitiesForAudio: (
+        audioData: Float32Array,
+        signal?: AbortSignal,
+      ) => Promise<number[]>;
+      runGroqFinalPass: (options: {
+        provider: TranscriptionProvider | null;
+        session: StreamingSession;
+        audioFilePath?: string;
+        rawTranscription: string;
+      }) => Promise<string | null>;
+    };
+    service.readWavAsFloat32 = vi
+      .fn()
+      .mockResolvedValue(new Float32Array(16_000 * 9).fill(0.1));
+    service.computeVadProbabilitiesForAudio = vi
+      .fn()
+      .mockResolvedValue(new Array(9 * 32).fill(1));
+
+    const finalPassText =
+      "今の入力速度は維持したまま文字起こしの精度をもう少し上げたいです。";
+    const transcribeFullAudio = vi
+      .fn()
+      .mockResolvedValue({ text: finalPassText });
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(),
+      flush: vi.fn(),
+      reset: vi.fn(),
+      transcribeFullAudio,
+    } as unknown as TranscriptionProvider;
+    const context = {
+      ...createDefaultContext("session-1"),
+      isPartial: true,
+      isFinal: false,
+    } satisfies StreamingPipelineContext;
+    const session: StreamingSession = {
+      context,
+      transcriptionResults: [],
+      detectedLanguage: "ja",
+      dictationProfile: "low-latency",
+      recordingStartedAt: 1,
+      recordingStoppedAt: 9_001,
+    };
+
+    await expect(
+      service.runGroqFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription:
+          "今の入力速度は維持したまま文字起こしの精度をもう少し上げたいです",
+      }),
+    ).resolves.toBe(finalPassText);
+    expect(transcribeFullAudio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({ language: "ja" }),
+      }),
+    );
+
+    // An explicit user preference always wins over the detected language.
+    transcribeFullAudio.mockClear();
+    session.context.sharedData.userPreferences.language = "en";
+    await expect(
+      service.runGroqFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription:
+          "今の入力速度は維持したまま文字起こしの精度をもう少し上げたいです",
+      }),
+    ).resolves.toBe(finalPassText);
+    expect(transcribeFullAudio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({ language: "en" }),
+      }),
+    );
+  });
+
+  it("does not let slow VAD recomputation consume the final pass deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const service = createTranscriptionServiceForTest() as unknown as {
+        readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
+        computeVadProbabilitiesForAudio: (
+          audioData: Float32Array,
+          signal?: AbortSignal,
+        ) => Promise<number[]>;
+        runGroqFinalPass: (options: {
+          provider: TranscriptionProvider | null;
+          session: StreamingSession;
+          audioFilePath?: string;
+          rawTranscription: string;
+        }) => Promise<string | null>;
+      };
+      service.readWavAsFloat32 = vi
+        .fn()
+        .mockResolvedValue(new Float32Array(16_000 * 9).fill(0.1));
+      // VAD recompute takes far longer than the 5s low-latency deadline
+      service.computeVadProbabilitiesForAudio = vi.fn(
+        () =>
+          new Promise<number[]>((resolve) => {
+            setTimeout(() => resolve(new Array(9 * 32).fill(1)), 8_000);
+          }),
+      );
+
+      const finalPassText =
+        "今の入力速度は維持したまま文字起こしの精度をもう少し上げたいです。";
+      const provider = {
+        name: "groq",
+        transcribe: vi.fn(),
+        flush: vi.fn(),
+        reset: vi.fn(),
+        transcribeFullAudio: vi.fn().mockResolvedValue({ text: finalPassText }),
+      } as unknown as TranscriptionProvider;
+      const context = {
+        ...createDefaultContext("session-1"),
+        isPartial: true,
+        isFinal: false,
+      } satisfies StreamingPipelineContext;
+      const session: StreamingSession = {
+        context,
+        transcriptionResults: [],
+        dictationProfile: "low-latency",
+        recordingStartedAt: 1,
+        recordingStoppedAt: 9_001,
+      };
+
+      const resultPromise = service.runGroqFinalPass({
+        provider,
+        session,
+        audioFilePath: "/tmp/test.wav",
+        rawTranscription:
+          "今の入力速度は維持したまま文字起こしの精度をもう少し上げたいです",
+      });
+      const assertion = expect(resultPromise).resolves.toBe(finalPassText);
+      await vi.advanceTimersByTimeAsync(8_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

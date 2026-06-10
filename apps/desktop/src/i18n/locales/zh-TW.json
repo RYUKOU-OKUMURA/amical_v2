@@ -640,6 +640,10 @@
         "description": "對貼上文字與小工具預覽套用日文友善的標點與可讀性調整。",
         "formattingNote": "若已啟用 AI 格式化，將以格式化結果為準。"
       },
+      "voiceProcessing": {
+        "label": "語音處理",
+        "description": "對麥克風輸入套用回音消除、噪音抑制與自動增益。若轉錄品質不佳，可關閉以取得未經處理的原始音訊。"
+      },
       "microphone": {
         "label": "麥克風",
         "description": "請選擇偏好的麥克風設備。",

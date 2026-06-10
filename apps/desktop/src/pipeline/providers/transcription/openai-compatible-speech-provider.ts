@@ -30,12 +30,132 @@ interface OpenAICompatibleTranscriptionSegment {
 
 interface OpenAICompatibleTranscriptionResponse {
   text?: string;
+  language?: string;
   segments?: OpenAICompatibleTranscriptionSegment[];
   error?: {
     message?: string;
     type?: string;
     code?: string;
   };
+}
+
+/** Whisper's verbose_json reports `language` as a full lowercase English name
+ * (e.g. "japanese"). Map the Whisper language set to ISO codes so the value
+ * can be fed back as a `language` hint on subsequent requests. */
+const WHISPER_LANGUAGE_NAME_TO_ISO: Record<string, string> = {
+  english: "en",
+  chinese: "zh",
+  german: "de",
+  spanish: "es",
+  russian: "ru",
+  korean: "ko",
+  french: "fr",
+  japanese: "ja",
+  portuguese: "pt",
+  turkish: "tr",
+  polish: "pl",
+  catalan: "ca",
+  dutch: "nl",
+  arabic: "ar",
+  swedish: "sv",
+  italian: "it",
+  indonesian: "id",
+  hindi: "hi",
+  finnish: "fi",
+  vietnamese: "vi",
+  hebrew: "he",
+  ukrainian: "uk",
+  greek: "el",
+  malay: "ms",
+  czech: "cs",
+  romanian: "ro",
+  danish: "da",
+  hungarian: "hu",
+  tamil: "ta",
+  norwegian: "no",
+  thai: "th",
+  urdu: "ur",
+  croatian: "hr",
+  bulgarian: "bg",
+  lithuanian: "lt",
+  latin: "la",
+  maori: "mi",
+  malayalam: "ml",
+  welsh: "cy",
+  slovak: "sk",
+  telugu: "te",
+  persian: "fa",
+  latvian: "lv",
+  bengali: "bn",
+  serbian: "sr",
+  azerbaijani: "az",
+  slovenian: "sl",
+  kannada: "kn",
+  estonian: "et",
+  macedonian: "mk",
+  breton: "br",
+  basque: "eu",
+  icelandic: "is",
+  armenian: "hy",
+  nepali: "ne",
+  mongolian: "mn",
+  bosnian: "bs",
+  kazakh: "kk",
+  albanian: "sq",
+  swahili: "sw",
+  galician: "gl",
+  marathi: "mr",
+  punjabi: "pa",
+  sinhala: "si",
+  khmer: "km",
+  shona: "sn",
+  yoruba: "yo",
+  somali: "so",
+  afrikaans: "af",
+  occitan: "oc",
+  georgian: "ka",
+  belarusian: "be",
+  tajik: "tg",
+  sindhi: "sd",
+  gujarati: "gu",
+  amharic: "am",
+  yiddish: "yi",
+  lao: "lo",
+  uzbek: "uz",
+  faroese: "fo",
+  "haitian creole": "ht",
+  pashto: "ps",
+  turkmen: "tk",
+  nynorsk: "nn",
+  maltese: "mt",
+  sanskrit: "sa",
+  luxembourgish: "lb",
+  myanmar: "my",
+  tibetan: "bo",
+  tagalog: "tl",
+  malagasy: "mg",
+  assamese: "as",
+  tatar: "tt",
+  hawaiian: "haw",
+  lingala: "ln",
+  hausa: "ha",
+  bashkir: "ba",
+  javanese: "jw",
+  sundanese: "su",
+  cantonese: "yue",
+};
+
+function normalizeDetectedWhisperLanguage(
+  language: string | undefined,
+): string | undefined {
+  const trimmed = language?.trim().toLowerCase();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (/^[a-z]{2,3}(-[a-z0-9]+)?$/.test(trimmed)) {
+    return trimmed.split("-")[0];
+  }
+  return WHISPER_LANGUAGE_NAME_TO_ISO[trimmed];
 }
 
 export interface OpenAICompatibleSpeechConfig {
@@ -141,8 +261,12 @@ function isJapaneseLanguage(language: string | undefined): boolean {
 function getFilteredText(
   body: OpenAICompatibleTranscriptionResponse | null,
   quality: CompleteTranscriptionQuality,
-  echoVocabulary: readonly string[],
+  vocabulary: readonly string[],
 ): string {
+  // Prompt-echo hallucinations happen on near-silent audio. When speech
+  // quality is strong the user genuinely said the vocabulary words, so only
+  // apply the echo filter to low-information audio.
+  const echoVocabulary = isLowInformationSpeech(quality) ? vocabulary : [];
   const segments = body?.segments ?? [];
   if (segments.length > 0) {
     const kept = segments.filter(
@@ -633,6 +757,11 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     }
 
     const text = getFilteredText(body, speechQuality, vocabulary);
+    // Only report detected language from non-empty transcripts so a dropped
+    // hallucination chunk can't lock the session onto a wrong language.
+    const detectedLanguage = text.trim()
+      ? normalizeDetectedWhisperLanguage(body?.language)
+      : undefined;
     const vadSpeechDurationMs = speechQuality.speechDurationMs ?? 0;
     const droppedByVadMs =
       speechExtractionMode === "vad-trim"
@@ -655,9 +784,10 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
         lowInformationPromptSuppressed:
           lowInformationSpeech && promptMode === "none",
         usedRawFallback,
+        detectedLanguage,
       },
     );
 
-    return { text };
+    return { text, detectedLanguage };
   }
 }

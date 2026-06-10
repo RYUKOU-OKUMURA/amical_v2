@@ -662,6 +662,10 @@
         "description": "Apply Japanese-friendly punctuation and readability adjustments to pasted text and the widget preview.",
         "formattingNote": "When AI formatting is enabled, the formatted result takes priority."
       },
+      "voiceProcessing": {
+        "label": "Voice processing",
+        "description": "Apply echo cancellation, noise suppression, and auto gain to the microphone. Turn off for cleaner raw audio if transcription quality suffers."
+      },
       "microphone": {
         "label": "Microphone",
         "description": "Choose your preferred microphone.",

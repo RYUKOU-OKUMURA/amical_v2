@@ -44,6 +44,10 @@ export const useAudioCapture = ({
   // Get user's preferred microphone from settings
   const { data: settings } = api.settings.getSettings.useQuery();
   const preferredMicrophoneName = settings?.recording?.preferredMicrophoneName;
+  // WebRTC voice processing (echo cancellation, noise suppression, auto gain).
+  // Defaults ON; turning it off gives Whisper cleaner raw audio.
+  const audioPreprocessingEnabled =
+    settings?.recording?.audioPreprocessingEnabled !== false;
 
   const startCapture = useCallback(async () => {
     await mutexRef.current.runExclusive(async () => {
@@ -55,9 +59,9 @@ export const useAudioCapture = ({
         const audioConstraints: MediaTrackConstraints = {
           channelCount: 1,
           sampleRate: SAMPLE_RATE,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
+          echoCancellation: audioPreprocessingEnabled,
+          noiseSuppression: audioPreprocessingEnabled,
+          autoGainControl: audioPreprocessingEnabled,
         };
 
         // Add deviceId if user has a preference
@@ -190,7 +194,7 @@ export const useAudioCapture = ({
         throw error;
       }
     });
-  }, [onAudioChunk, preferredMicrophoneName]);
+  }, [onAudioChunk, preferredMicrophoneName, audioPreprocessingEnabled]);
 
   const stopCapture = useCallback(async () => {
     await mutexRef.current.runExclusive(async () => {

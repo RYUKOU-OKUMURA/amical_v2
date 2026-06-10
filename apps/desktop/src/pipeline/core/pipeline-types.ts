@@ -113,6 +113,9 @@ export interface StreamingSession {
   recordingStoppedAt?: number; // When user released record button (from RecordingManager)
   finalizationStartedAt?: number; // When finalizeSession() was called
   dictationProfile?: DictationProfile;
+  /** Per-frame Silero VAD probabilities accumulated during streaming, reused
+   * by the full-audio final pass to avoid recomputing VAD under a deadline. */
+  speechProbabilities?: number[];
 }
 
 // Simple pipeline configuration

@@ -18,9 +18,9 @@ const GROQ_LOW_LATENCY_TIMING = {
 };
 
 const GROQ_LONG_FORM_TIMING = {
-  minAudioDurationMs: 8000,
-  maxAudioDurationMs: 20000,
-  minSilenceDurationMs: 2500,
+  minAudioDurationMs: 4000,
+  maxAudioDurationMs: 10000,
+  minSilenceDurationMs: 1000,
 };
 
 export class GroqProvider extends OpenAICompatibleSpeechProvider {

@@ -1,7 +1,7 @@
 export const FORMATTER_TIMEOUT_MS = 2_000;
 export const GROQ_LONG_FORM_FINAL_PASS_TIMEOUT_MS = 10_000;
-export const GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS = 12_000;
-export const GROQ_LONG_FORM_FINAL_PASS_MIN_RAW_LENGTH = 120;
+export const GROQ_LONG_FORM_FINAL_PASS_MIN_DURATION_MS = 4_000;
+export const GROQ_LONG_FORM_FINAL_PASS_MIN_RAW_LENGTH = 40;
 // Bounds only the Groq HTTP roundtrip — VAD probabilities are reused from
 // streaming (or recomputed before the deadline starts), so the budget no
 // longer absorbs frame-by-frame ONNX inference. 5s lets the higher-accuracy

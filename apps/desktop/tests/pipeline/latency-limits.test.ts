@@ -65,23 +65,23 @@ describe("latency limits", () => {
     expect(
       shouldRunGroqLongFormFinalPass({
         ...baseOptions,
-        rawTranscriptionLength: 40,
-        recordingDurationMs: 8_000,
+        rawTranscriptionLength: 20,
+        recordingDurationMs: 3_000,
       }),
     ).toBe(false);
 
     expect(
       shouldRunGroqLongFormFinalPass({
         ...baseOptions,
-        rawTranscriptionLength: 40,
-        recordingDurationMs: 12_000,
+        rawTranscriptionLength: 20,
+        recordingDurationMs: 4_000,
       }),
     ).toBe(true);
 
     expect(
       shouldRunGroqLongFormFinalPass({
         ...baseOptions,
-        rawTranscriptionLength: 120,
+        rawTranscriptionLength: 40,
         recordingDurationMs: 2_000,
       }),
     ).toBe(true);

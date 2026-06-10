@@ -9,6 +9,7 @@ We use **Vitest** to test the Electron main process, specifically:
 - **tRPC router procedures** - Direct testing by calling router methods
 - **Service business logic** - Testing services with different database states
 - **App initialization** - Testing how the app initializes with various database conditions
+- **Dictation pipeline logic** - Testing Whisper prompt construction, OpenAI-compatible speech providers, VAD/deadline policy, Groq final pass behavior, retry transcription, and cleanup utilities
 
 ## Architecture
 
@@ -40,6 +41,15 @@ pnpm test:ui
 
 # With coverage
 pnpm test:coverage
+```
+
+From the repository root, the desktop package can be targeted with:
+
+```bash
+pnpm --filter @amical/desktop test
+pnpm --filter @amical/desktop type:check
+pnpm --filter @amical/desktop lint
+pnpm --filter @amical/desktop format:check
 ```
 
 ## Writing Tests

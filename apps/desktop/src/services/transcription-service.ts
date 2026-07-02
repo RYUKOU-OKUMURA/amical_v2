@@ -615,32 +615,70 @@ export class TranscriptionService {
         const provider = await this.selectProvider();
         providerForFinalPass = provider;
         usedCloudProvider = provider.name === "amical-cloud";
-        const finalResult = await provider.flush({
-          sessionId,
-          vocabulary: session.context.sharedData.vocabulary,
-          accessibilityContext: session.context.sharedData.accessibilityContext,
-          previousChunk,
-          aggregatedTranscription,
-          language: this.resolveSessionLanguage(session),
-          formattingEnabled: shouldUseCloudFormatting && usedCloudProvider,
-          dictationProfile: activeProfile,
-        });
-        session.detectedLanguage = this.mergeDetectedLanguage(
-          session.detectedLanguage,
-          finalResult.detectedLanguage,
-        );
-
-        this.accumulateTranscriptionResult(
-          session.transcriptionResults,
-          finalResult.text,
-          usedCloudProvider,
-        );
-        if (finalResult.text.trim()) {
-          logger.transcription.info("Whisper returned final transcription", {
+        try {
+          const finalResult = await provider.flush({
             sessionId,
-            transcriptionLength: finalResult.text.length,
-            totalResults: session.transcriptionResults.length,
+            vocabulary: session.context.sharedData.vocabulary,
+            accessibilityContext:
+              session.context.sharedData.accessibilityContext,
+            previousChunk,
+            aggregatedTranscription,
+            language: this.resolveSessionLanguage(session),
+            formattingEnabled: shouldUseCloudFormatting && usedCloudProvider,
+            dictationProfile: activeProfile,
           });
+          session.detectedLanguage = this.mergeDetectedLanguage(
+            session.detectedLanguage,
+            finalResult.detectedLanguage,
+          );
+
+          this.accumulateTranscriptionResult(
+            session.transcriptionResults,
+            finalResult.text,
+            usedCloudProvider,
+          );
+          if (finalResult.text.trim()) {
+            logger.transcription.info("Whisper returned final transcription", {
+              sessionId,
+              transcriptionLength: finalResult.text.length,
+              totalResults: session.transcriptionResults.length,
+            });
+          }
+        } catch (error) {
+          const errorCode =
+            error instanceof AppError ? error.errorCode : ErrorCodes.UNKNOWN;
+          const statusCode =
+            error instanceof AppError ? error.statusCode : undefined;
+          const errorName = error instanceof Error ? error.name : typeof error;
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+
+          logger.transcription.error(
+            "Provider flush failed during finalization",
+            {
+              sessionId,
+              provider: provider.name,
+              errorCode,
+              statusCode,
+              errorName,
+              error: errorMessage,
+            },
+          );
+
+          if (session.transcriptionResults.length === 0) {
+            throw error;
+          }
+
+          logger.transcription.warn(
+            "flush failed, pasting partial transcript",
+            {
+              sessionId,
+              provider: provider.name,
+              chunkCount: session.transcriptionResults.length,
+              errorCode,
+              statusCode,
+            },
+          );
         }
       } finally {
         this.transcriptionMutex.release();

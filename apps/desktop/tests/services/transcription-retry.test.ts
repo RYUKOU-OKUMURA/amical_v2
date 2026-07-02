@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import { TranscriptionService } from "../../src/services/transcription-service";
 import type { TranscriptionProvider } from "../../src/pipeline/core/pipeline-types";
+import { AppError, ErrorCodes } from "../../src/types/error";
 
 vi.mock("../../src/db/transcriptions", () => ({
   createTranscription: vi.fn(),
@@ -18,9 +19,11 @@ vi.mock("../../src/db/vocabulary", () => ({
 }));
 
 import {
+  createTranscription,
   getTranscriptionById,
   updateTranscription,
 } from "../../src/db/transcriptions";
+import { incrementDailyStats } from "../../src/db/daily-stats";
 
 const AUDIO_SAMPLES = 16_000 * 2; // 2 seconds
 const FRAME_SIZE = 512;
@@ -29,6 +32,8 @@ const FRAME_COUNT = Math.ceil(AUDIO_SAMPLES / FRAME_SIZE);
 interface TestService {
   readWavAsFloat32: (filePath: string) => Promise<Float32Array>;
   selectProvider: () => Promise<TranscriptionProvider>;
+  processStreamingChunk: TranscriptionService["processStreamingChunk"];
+  finalizeSession: TranscriptionService["finalizeSession"];
   retryTranscription: (transcriptionId: number) => Promise<string>;
 }
 
@@ -80,8 +85,10 @@ describe("TranscriptionService retryTranscription", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.mocked(createTranscription).mockReset();
     vi.mocked(getTranscriptionById).mockReset();
     vi.mocked(updateTranscription).mockReset();
+    vi.mocked(incrementDailyStats).mockReset();
   });
 
   it("uses a single full-audio pass for providers that support it", async () => {
@@ -174,5 +181,82 @@ describe("TranscriptionService retryTranscription", () => {
     expect(result).toContain("チャンク経路で転写した結果です");
     expect(transcribe).toHaveBeenCalledTimes(FRAME_COUNT);
     expect(flush).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("TranscriptionService finalizeSession", () => {
+  beforeEach(() => {
+    vi.spyOn(fs.promises, "access").mockResolvedValue(undefined as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.mocked(createTranscription).mockReset();
+    vi.mocked(getTranscriptionById).mockReset();
+    vi.mocked(updateTranscription).mockReset();
+    vi.mocked(incrementDailyStats).mockReset();
+  });
+
+  it("returns accumulated streaming text when flush fails after successful chunks", async () => {
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(async () => ({
+        text: "ストリーミング済みです。",
+        detectedLanguage: "ja",
+      })),
+      flush: vi.fn(async () => {
+        throw new AppError("flush failed", ErrorCodes.NETWORK_ERROR, {
+          statusCode: 503,
+        });
+      }),
+      reset: vi.fn(),
+    } as unknown as TranscriptionProvider;
+    const service = createService(provider);
+
+    await service.processStreamingChunk({
+      sessionId: "partial-session",
+      audioChunk: new Float32Array(FRAME_SIZE).fill(0.1),
+    });
+    const result = await service.finalizeSession({
+      sessionId: "partial-session",
+    });
+
+    expect(result).toBe("ストリーミング済みです。");
+    expect(provider.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it("still fails finalizeSession when flush fails before any chunk text exists", async () => {
+    const provider = {
+      name: "groq",
+      transcribe: vi.fn(async () => ({ text: "" })),
+      flush: vi.fn(async () => {
+        throw new AppError("flush failed", ErrorCodes.NETWORK_ERROR, {
+          statusCode: 503,
+        });
+      }),
+      reset: vi.fn(),
+    } as unknown as TranscriptionProvider;
+    const service = createService(provider);
+
+    await service.processStreamingChunk({
+      sessionId: "empty-session",
+      audioChunk: new Float32Array(FRAME_SIZE).fill(0.1),
+    });
+
+    await expect(
+      service.finalizeSession({ sessionId: "empty-session" }),
+    ).rejects.toMatchObject({
+      errorCode: ErrorCodes.NETWORK_ERROR,
+    });
+    expect(createTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "",
+        meta: expect.objectContaining({
+          status: "failed",
+          failureReason: ErrorCodes.NETWORK_ERROR,
+        }),
+      }),
+    );
   });
 });

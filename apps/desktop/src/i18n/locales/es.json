@@ -320,6 +320,14 @@
           "title": "Error de conexión",
           "description": "Verifica tu conexión a internet"
         },
+        "networkTimeout": {
+          "title": "Tiempo de conexión agotado",
+          "description": "El servicio de transcripción no respondió a tiempo. Verifica tu conexión e inténtalo de nuevo."
+        },
+        "parseError": {
+          "title": "Respuesta de transcripción no válida",
+          "description": "El servicio de transcripción devolvió una respuesta ilegible. Inténtalo de nuevo."
+        },
         "modelMissing": {
           "title": "No hay modelo seleccionado",
           "description": "Selecciona un modelo de transcripción."

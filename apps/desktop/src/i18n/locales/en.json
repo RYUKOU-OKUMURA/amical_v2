@@ -320,6 +320,14 @@
           "title": "Connection error",
           "description": "Check your internet connection"
         },
+        "networkTimeout": {
+          "title": "Connection timed out",
+          "description": "The transcription service did not respond in time. Check your connection and try again."
+        },
+        "parseError": {
+          "title": "Invalid transcription response",
+          "description": "The transcription service returned an unreadable response. Please try again."
+        },
         "modelMissing": {
           "title": "No Model Selected",
           "description": "Please select a transcription model."

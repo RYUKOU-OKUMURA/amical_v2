@@ -19,6 +19,7 @@ vi.mock("../../src/utils/http-client", () => ({
 
 import { OpenAICompatibleSpeechProvider } from "../../src/pipeline/providers/transcription/openai-compatible-speech-provider";
 import { groqRateLimitCache } from "../../src/services/groq-rate-limit-cache";
+import { ErrorCodes } from "../../src/types/error";
 
 const FRAME_SIZE = 512;
 
@@ -491,7 +492,9 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
 
   it("keeps buffered audio when a chunk request fails", async () => {
     fetchMock
-      .mockRejectedValueOnce(new Error("network down"))
+      .mockRejectedValueOnce(new TypeError("network down"))
+      .mockRejectedValueOnce(new TypeError("network down"))
+      .mockRejectedValueOnce(new TypeError("network down"))
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -507,12 +510,131 @@ describe("OpenAICompatibleSpeechProvider chunk timing", () => {
       minSilenceDurationMs: 384,
     });
 
-    await expect(feedFrames(provider, 50, 12)).rejects.toThrow("network down");
+    await expect(feedFrames(provider, 50, 12)).rejects.toMatchObject({
+      errorCode: ErrorCodes.NETWORK_ERROR,
+    });
 
     await expect(provider.flush(baseContext())).resolves.toEqual({
       text: "復旧しました",
     });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("retries a transient 429 response and returns the successful transcript", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers({ "retry-after": "0" }),
+        json: async () => ({
+          error: { message: "rate limited" },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          text: "リトライ成功",
+          segments: [{ text: "リトライ成功", no_speech_prob: 0.01 }],
+        }),
+      });
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+
+    const result = await feedFrames(provider, 50, 12);
+
+    expect(result).toEqual({ text: "リトライ成功" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]?.body).not.toBe(
+      fetchMock.mock.calls[1]?.[1]?.body,
+    );
+  });
+
+  it("throws an AppError after repeated 500 responses", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      headers: new Headers(),
+      json: async () => ({
+        error: { message: "server unavailable" },
+      }),
+    });
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+
+    await expect(feedFrames(provider, 50, 12)).rejects.toMatchObject({
+      errorCode: ErrorCodes.INTERNAL_SERVER_ERROR,
+      statusCode: 500,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry when the caller deadline signal aborts", async () => {
+    const abortController = new AbortController();
+    abortController.abort();
+    const abortError = new DOMException("Aborted", "AbortError");
+    fetchMock.mockRejectedValueOnce(abortError);
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+
+    await expect(
+      provider.transcribeFullAudio({
+        audioData: audioFrames(50),
+        speechProbabilities: new Array(50).fill(1),
+        signal: abortController.signal,
+        context: {
+          ...baseContext(),
+          speechExtractionMode: "raw",
+        },
+      }),
+    ).rejects.toBe(abortError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("wraps repeated fetch network failures as a network AppError", async () => {
+    fetchMock.mockRejectedValue(new TypeError("network down"));
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+
+    await expect(feedFrames(provider, 50, 12)).rejects.toMatchObject({
+      errorCode: ErrorCodes.NETWORK_ERROR,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("throws a parse AppError for repeated successful responses with invalid JSON", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "text/plain" }),
+      json: async () => {
+        throw new SyntaxError("Unexpected token");
+      },
+    });
+    const provider = createProvider({
+      minAudioDurationMs: 1600,
+      maxAudioDurationMs: 4000,
+      minSilenceDurationMs: 384,
+    });
+
+    await expect(feedFrames(provider, 50, 12)).rejects.toMatchObject({
+      errorCode: ErrorCodes.PARSE_ERROR,
+      statusCode: 200,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("passes the deadline abort signal to full-audio final pass requests", async () => {

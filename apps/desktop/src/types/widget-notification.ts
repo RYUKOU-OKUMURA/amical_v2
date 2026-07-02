@@ -189,6 +189,38 @@ export const ERROR_CODE_CONFIG: Record<ErrorCode, WidgetNotificationConfig> = {
       externalUrl: DISCORD_SUPPORT_URL,
     },
   },
+  [ErrorCodes.NETWORK_TIMEOUT]: {
+    title: { key: "widget.notifications.errorCode.networkTimeout.title" },
+    description: {
+      key: "widget.notifications.errorCode.networkTimeout.description",
+    },
+    subDescription: { key: "widget.notifications.recordingSaved" },
+    primaryAction: {
+      label: { key: "widget.notifications.action.settings" },
+      navigateTo: "/settings",
+    },
+    secondaryAction: {
+      label: { key: "widget.notifications.action.support" },
+      icon: "discord",
+      externalUrl: DISCORD_SUPPORT_URL,
+    },
+  },
+  [ErrorCodes.PARSE_ERROR]: {
+    title: { key: "widget.notifications.errorCode.parseError.title" },
+    description: {
+      key: "widget.notifications.errorCode.parseError.description",
+    },
+    subDescription: { key: "widget.notifications.recordingSaved" },
+    primaryAction: {
+      label: { key: "widget.notifications.action.viewHistory" },
+      navigateTo: "/history",
+    },
+    secondaryAction: {
+      label: { key: "widget.notifications.action.support" },
+      icon: "discord",
+      externalUrl: DISCORD_SUPPORT_URL,
+    },
+  },
   [ErrorCodes.MODEL_MISSING]: {
     title: { key: "widget.notifications.errorCode.modelMissing.title" },
     description: {

@@ -23,6 +23,8 @@ export const ErrorCodes = {
 
   // Network errors
   NETWORK_ERROR: "NETWORK_ERROR",
+  NETWORK_TIMEOUT: "NETWORK_TIMEOUT",
+  PARSE_ERROR: "PARSE_ERROR",
 
   // Whisper/local errors
   MODEL_MISSING: "MODEL_MISSING",

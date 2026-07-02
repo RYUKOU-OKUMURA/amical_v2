@@ -320,6 +320,14 @@
           "title": "連線錯誤",
           "description": "請檢查您的網路連線"
         },
+        "networkTimeout": {
+          "title": "連線逾時",
+          "description": "轉錄服務未及時回應。請檢查連線後再試一次。"
+        },
+        "parseError": {
+          "title": "轉錄回應無效",
+          "description": "轉錄服務傳回無法讀取的回應。請再試一次。"
+        },
         "modelMissing": {
           "title": "尚未選擇模型",
           "description": "請選擇一個轉錄模型"

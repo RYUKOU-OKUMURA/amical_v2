@@ -200,6 +200,25 @@ const LOW_INFORMATION_MAX_AVERAGE_SPEECH_PROBABILITY = 0.35;
 const LOW_INFORMATION_MAX_PEAK_SPEECH_PROBABILITY = 0.55;
 const VOCABULARY_ECHO_MIN_MATCHES = 2;
 const VOCABULARY_ECHO_MATCH_RATIO = 0.7;
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_TRANSCRIPTION_ATTEMPTS = 3;
+const RETRY_BACKOFF_MS = [500, 1500] as const;
+const MAX_RETRY_AFTER_MS = 3_000;
+
+interface TranscriptionRequestOptions {
+  baseURL: string;
+  apiKey: string;
+  speechAudio: Float32Array;
+  model: string;
+  requestedLanguage?: string;
+  prompt?: string;
+  mode: "chunk" | "final-pass";
+  signal?: AbortSignal;
+}
+
+interface TranscriptionFetchResult {
+  body: OpenAICompatibleTranscriptionResponse | null;
+}
 
 function modelIdFromSelection(
   selection: string | undefined,
@@ -242,6 +261,78 @@ function mapStatusToErrorCode(status: number) {
     return ErrorCodes.INTERNAL_SERVER_ERROR;
   }
   return ErrorCodes.NETWORK_ERROR;
+}
+
+function getErrorName(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isAbortLikeError(error: unknown): boolean {
+  const name = getErrorName(error);
+  return name === "AbortError" || name === "TimeoutError";
+}
+
+function getSignalAbortReason(signal: AbortSignal): unknown {
+  if (signal.reason) {
+    return signal.reason;
+  }
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function parseRetryAfterMs(headers: Headers): number | undefined {
+  const retryAfter = headers.get("retry-after");
+  if (!retryAfter) {
+    return undefined;
+  }
+
+  const retryAfterSeconds = Number(retryAfter);
+  if (Number.isFinite(retryAfterSeconds)) {
+    return Math.max(0, retryAfterSeconds * 1000);
+  }
+
+  const retryAfterDate = Date.parse(retryAfter);
+  if (Number.isNaN(retryAfterDate)) {
+    return undefined;
+  }
+
+  return Math.max(0, retryAfterDate - Date.now());
+}
+
+function waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) {
+    if (signal?.aborted) {
+      return Promise.reject(getSignalAbortReason(signal));
+    }
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(getSignalAbortReason(signal));
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      cleanup();
+      reject(signal ? getSignalAbortReason(signal) : undefined);
+    };
+    const cleanup = () => {
+      signal?.removeEventListener("abort", onAbort);
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function normalizeLanguageCode(
@@ -594,6 +685,296 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
     return result;
   }
 
+  private buildTranscriptionFormData(
+    options: Pick<
+      TranscriptionRequestOptions,
+      "speechAudio" | "model" | "requestedLanguage" | "prompt"
+    >,
+  ): FormData {
+    const formData = new FormData();
+    formData.append("file", toWavBlob(options.speechAudio), "dictation.wav");
+    formData.append("model", options.model);
+    formData.append("response_format", "verbose_json");
+    formData.append("timestamp_granularities[]", "segment");
+    formData.append("temperature", "0");
+    if (options.requestedLanguage) {
+      formData.append("language", options.requestedLanguage);
+    }
+    if (options.prompt) {
+      formData.append("prompt", options.prompt);
+    }
+    return formData;
+  }
+
+  private async fetchTranscriptionWithRetries(
+    options: TranscriptionRequestOptions,
+  ): Promise<TranscriptionFetchResult> {
+    for (
+      let attemptIndex = 0;
+      attemptIndex < MAX_TRANSCRIPTION_ATTEMPTS;
+      attemptIndex++
+    ) {
+      const requestSignal =
+        options.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+
+      let response: Response;
+      try {
+        response = await fetch(`${options.baseURL}/audio/transcriptions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${options.apiKey}`,
+            "User-Agent": getUserAgent(),
+          },
+          body: this.buildTranscriptionFormData(options),
+          signal: requestSignal,
+        });
+      } catch (error) {
+        const errorName = getErrorName(error);
+        const appError = this.mapFetchError(error, options);
+        const retried = await this.retryTransientFailure({
+          appError,
+          attemptIndex,
+          mode: options.mode,
+          signal: options.signal,
+          errorName,
+        });
+        if (retried) {
+          continue;
+        }
+
+        this.logTranscriptionRequestFailure(appError, options.mode, errorName);
+        throw appError;
+      }
+
+      this.cacheGroqRateLimitHeaders(response);
+
+      let body: OpenAICompatibleTranscriptionResponse | null = null;
+      try {
+        body = (await response.json()) as OpenAICompatibleTranscriptionResponse;
+      } catch (error) {
+        if (response.ok) {
+          const appError = this.createParseError(response, error);
+          logger.transcription.warn(
+            `${this.options.displayName} transcription response JSON parse failed`,
+            {
+              provider: this.name,
+              mode: options.mode,
+              status: response.status,
+              contentType: response.headers.get("content-type"),
+              errorName: getErrorName(error),
+              error: getErrorMessage(error),
+            },
+          );
+
+          const retried = await this.retryTransientFailure({
+            appError,
+            attemptIndex,
+            mode: options.mode,
+            signal: options.signal,
+            errorName: getErrorName(error),
+          });
+          if (retried) {
+            continue;
+          }
+
+          this.logTranscriptionRequestFailure(
+            appError,
+            options.mode,
+            getErrorName(error),
+          );
+          throw appError;
+        }
+      }
+
+      if (!response.ok) {
+        const appError = this.createHttpError(response, body);
+        const retried = await this.retryTransientFailure({
+          appError,
+          attemptIndex,
+          mode: options.mode,
+          signal: options.signal,
+          response,
+        });
+        if (retried) {
+          continue;
+        }
+
+        this.logTranscriptionRequestFailure(appError, options.mode);
+        throw appError;
+      }
+
+      return { body };
+    }
+
+    throw new AppError(
+      `${this.options.displayName} transcription failed after retries`,
+      ErrorCodes.UNKNOWN,
+      {
+        uiTitle: `${this.options.displayName} transcription failed`,
+        uiMessage: "Transcription failed after multiple attempts.",
+      },
+    );
+  }
+
+  private cacheGroqRateLimitHeaders(response: Response): void {
+    if (this.options.name !== "groq") {
+      return;
+    }
+
+    const rateLimitStatus = parseGroqRateLimitHeaders(
+      response.headers,
+      "transcription",
+    );
+    if (rateLimitStatus) {
+      groqRateLimitCache.update(rateLimitStatus);
+    }
+  }
+
+  private mapFetchError(
+    error: unknown,
+    options: TranscriptionRequestOptions,
+  ): AppError {
+    if (options.signal?.aborted) {
+      throw error;
+    }
+
+    if (isAbortLikeError(error)) {
+      return new AppError(
+        `${this.options.displayName} transcription request timed out`,
+        ErrorCodes.NETWORK_TIMEOUT,
+        {
+          uiTitle: `${this.options.displayName} connection timed out`,
+          uiMessage: `${this.options.displayName} connection timed out. Please check your internet connection and try again.`,
+        },
+      );
+    }
+
+    return new AppError(
+      `${this.options.displayName} transcription network error: ${getErrorMessage(
+        error,
+      )}`,
+      ErrorCodes.NETWORK_ERROR,
+      {
+        uiTitle: `${this.options.displayName} connection error`,
+        uiMessage: `Could not connect to ${this.options.displayName}. Please check your internet connection and try again.`,
+      },
+    );
+  }
+
+  private createHttpError(
+    response: Response,
+    body: OpenAICompatibleTranscriptionResponse | null,
+  ): AppError {
+    const message =
+      body?.error?.message ||
+      body?.error?.type ||
+      `${this.options.displayName} transcription failed with HTTP ${response.status}`;
+    return new AppError(message, mapStatusToErrorCode(response.status), {
+      statusCode: response.status,
+      uiTitle: `${this.options.displayName} transcription failed`,
+      uiMessage: message,
+    });
+  }
+
+  private createParseError(response: Response, error: unknown): AppError {
+    const message = `${this.options.displayName} transcription response could not be parsed as JSON: ${getErrorMessage(
+      error,
+    )}`;
+    return new AppError(message, ErrorCodes.PARSE_ERROR, {
+      statusCode: response.status,
+      uiTitle: `${this.options.displayName} transcription failed`,
+      uiMessage: `${this.options.displayName} returned an invalid transcription response. Please try again.`,
+    });
+  }
+
+  private async retryTransientFailure(options: {
+    appError: AppError;
+    attemptIndex: number;
+    mode: "chunk" | "final-pass";
+    signal?: AbortSignal;
+    response?: Response;
+    errorName?: string;
+  }): Promise<boolean> {
+    const delayMs = this.getRetryDelayMs(
+      options.appError,
+      options.attemptIndex,
+      options.response,
+    );
+    if (delayMs === null) {
+      return false;
+    }
+
+    logger.transcription.warn(
+      `${this.options.displayName} transcription retrying after transient failure`,
+      {
+        provider: this.name,
+        mode: options.mode,
+        attempt: options.attemptIndex + 1,
+        nextAttempt: options.attemptIndex + 2,
+        maxAttempts: MAX_TRANSCRIPTION_ATTEMPTS,
+        status: options.appError.statusCode,
+        errorCode: options.appError.errorCode,
+        errorName: options.errorName ?? options.appError.name,
+        delayMs,
+      },
+    );
+    await waitForRetry(delayMs, options.signal);
+    return true;
+  }
+
+  private getRetryDelayMs(
+    appError: AppError,
+    attemptIndex: number,
+    response?: Response,
+  ): number | null {
+    if (attemptIndex >= MAX_TRANSCRIPTION_ATTEMPTS - 1) {
+      return null;
+    }
+
+    const status = appError.statusCode;
+    if (status === 429) {
+      const retryAfterMs = response
+        ? parseRetryAfterMs(response.headers)
+        : undefined;
+      if (retryAfterMs !== undefined) {
+        return retryAfterMs <= MAX_RETRY_AFTER_MS ? retryAfterMs : null;
+      }
+      return RETRY_BACKOFF_MS[attemptIndex] ?? null;
+    }
+
+    if (appError.errorCode === ErrorCodes.PARSE_ERROR) {
+      return RETRY_BACKOFF_MS[attemptIndex] ?? null;
+    }
+
+    if (typeof status === "number") {
+      return status >= 500 ? (RETRY_BACKOFF_MS[attemptIndex] ?? null) : null;
+    }
+
+    if (appError.errorCode === ErrorCodes.NETWORK_ERROR) {
+      return RETRY_BACKOFF_MS[attemptIndex] ?? null;
+    }
+
+    return null;
+  }
+
+  private logTranscriptionRequestFailure(
+    appError: AppError,
+    mode: "chunk" | "final-pass",
+    errorName = appError.name,
+  ): void {
+    logger.transcription.error(
+      `${this.options.displayName} transcription request failed`,
+      {
+        provider: this.name,
+        mode,
+        status: appError.statusCode,
+        errorCode: appError.errorCode,
+        errorName,
+        error: appError.message,
+      },
+    );
+  }
+
   private async transcribeAudio(
     rawAudio: Float32Array,
     vadProbs: number[],
@@ -701,60 +1082,18 @@ export class OpenAICompatibleSpeechProvider implements TranscriptionProvider {
                 ?.preSelectionText,
           });
 
-    const formData = new FormData();
-    formData.append("file", toWavBlob(speechAudio), "dictation.wav");
-    formData.append("model", model);
-    formData.append("response_format", "verbose_json");
-    formData.append("timestamp_granularities[]", "segment");
-    formData.append("temperature", "0");
-    if (requestedLanguage) {
-      formData.append("language", requestedLanguage);
-    }
-    if (prompt) {
-      formData.append("prompt", prompt);
-    }
-
     const startedAt = performance.now();
-    const response = await fetch(`${baseURL}/audio/transcriptions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        "User-Agent": getUserAgent(),
-      },
-      body: formData,
-      signal: signal ?? AbortSignal.timeout(30_000),
+    const { body } = await this.fetchTranscriptionWithRetries({
+      baseURL,
+      apiKey: config.apiKey,
+      speechAudio,
+      model,
+      requestedLanguage,
+      prompt,
+      mode,
+      signal,
     });
-
-    if (this.options.name === "groq") {
-      const rateLimitStatus = parseGroqRateLimitHeaders(
-        response.headers,
-        "transcription",
-      );
-      if (rateLimitStatus) {
-        groqRateLimitCache.update(rateLimitStatus);
-      }
-    }
-
     const duration = performance.now() - startedAt;
-    let body: OpenAICompatibleTranscriptionResponse | null = null;
-
-    try {
-      body = (await response.json()) as OpenAICompatibleTranscriptionResponse;
-    } catch {
-      body = null;
-    }
-
-    if (!response.ok) {
-      const message =
-        body?.error?.message ||
-        body?.error?.type ||
-        `${this.options.displayName} transcription failed with HTTP ${response.status}`;
-      throw new AppError(message, mapStatusToErrorCode(response.status), {
-        statusCode: response.status,
-        uiTitle: `${this.options.displayName} transcription failed`,
-        uiMessage: message,
-      });
-    }
 
     const text = getFilteredText(body, speechQuality, vocabulary);
     // Only report detected language from non-empty transcripts so a dropped
